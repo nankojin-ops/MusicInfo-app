@@ -9,6 +9,13 @@ class Config {
     this.spreadsheetId = (props.SPREADSHEET_ID || '').trim();
     this.driveFolderId = (props.DRIVE_FOLDER_ID || '').trim();
     this.sheetName = (props.SHEET_NAME || 'MusicTracks').trim();
+    this.musicBrainzUserAgent = (props.MUSICBRAINZ_USER_AGENT || '').trim() || Config.CONSTANTS.MUSICBRAINZ.DEFAULT_USER_AGENT;
+    const rawMbEnabled = props.MUSICBRAINZ_ENABLED !== undefined && props.MUSICBRAINZ_ENABLED !== null
+      ? String(props.MUSICBRAINZ_ENABLED).trim().toLowerCase()
+      : '';
+    this.musicBrainzEnabled = (rawMbEnabled === 'false' || rawMbEnabled === '0')
+      ? false
+      : Boolean(Config.CONSTANTS.MUSICBRAINZ.ENABLED);
   }
 
   /**
@@ -46,6 +53,22 @@ class Config {
   }
 
   /**
+   * MusicBrainz API 通信用 User-Agent を取得
+   * @returns {string}
+   */
+  getMusicBrainzUserAgent() {
+    return this.musicBrainzUserAgent;
+  }
+
+  /**
+   * MusicBrainz 連携が有効かどうかを取得
+   * @returns {boolean}
+   */
+  isMusicBrainzEnabled() {
+    return this.musicBrainzEnabled;
+  }
+
+  /**
    * 必須設定が揃っているか検証
    * @returns {boolean}
    */
@@ -76,6 +99,18 @@ class Config {
         ENTITY_ALBUM: 'album',
         ENTITY_SONG: 'song',
         LIMIT: 25
+      },
+      MUSICBRAINZ: {
+        BASE_URL: 'https://musicbrainz.org/ws/2',
+        RELEASE_ENDPOINT: 'https://musicbrainz.org/ws/2/release',
+        CAA_BASE_URL: 'https://coverartarchive.org/release',
+        DEFAULT_USER_AGENT: 'MusicInfoApp/1.0 ( https://github.com/nankojin-ops/MusicInfo-app )',
+        LIMIT: 25,
+        MIN_INTERVAL_MS: 1100,
+        RETRY_DELAY_MS: 1100,
+        MAX_RETRIES: 1,
+        CACHE_KEY_LAST_REQ: 'MUSICBRAINZ_LAST_REQUEST_TS',
+        ENABLED: true
       }
     };
   }

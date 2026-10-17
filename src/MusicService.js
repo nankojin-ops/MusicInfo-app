@@ -1,3 +1,7 @@
+var MusicBrainzService = (typeof MusicBrainzService !== 'undefined')
+  ? MusicBrainzService
+  : (typeof require !== 'undefined' ? require('./MusicBrainzService') : null);
+
 /**
  * 音楽カタログ業務ロジック統括オーケストレーター
  */
@@ -7,12 +11,14 @@ class MusicService {
    * @param {SheetService} sheetService 
    * @param {DriveService} driveService 
    * @param {ItunesService} itunesService 
+   * @param {MusicBrainzService} [musicBrainzService=null]
    */
-  constructor(config, sheetService, driveService, itunesService) {
+  constructor(config, sheetService, driveService, itunesService, musicBrainzService = null) {
     this.config = config;
     this.sheetService = sheetService;
     this.driveService = driveService;
     this.itunesService = itunesService;
+    this.musicBrainzService = musicBrainzService;
   }
 
   /**
@@ -47,6 +53,248 @@ class MusicService {
   }
 
   /**
+   * iTunes と MusicBrainz の統合アルバム検索
+   * @param {string} keyword
+   * @returns {AlbumSearchResponse}
+   */
+  searchAlbums(keyword) {
+    const cleaned = String(keyword || '').trim();
+    if (!cleaned) {
+      const err = new Error('検索キーワードを入力してください。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    const mbService = this.musicBrainzService || (MusicBrainzService ? new MusicBrainzService(this.config) : null);
+    const configEnabled = (this.config && typeof this.config.isMusicBrainzEnabled === 'function')
+      ? this.config.isMusicBrainzEnabled()
+      : true;
+    const serviceEnabled = (mbService && typeof mbService.isEnabled === 'function')
+      ? mbService.isEnabled()
+      : true;
+    const mbEnabled = Boolean(mbService && configEnabled && serviceEnabled);
+
+    const sources = {
+      itunes: { ok: false, count: 0 },
+      musicbrainz: mbEnabled
+        ? { ok: false, count: 0 }
+        : { ok: true, count: 0, skipped: true }
+    };
+
+    let itunesAlbums = [];
+    let mbAlbums = [];
+    let handledViaFetchAll = false;
+
+    const canUseFetchAll = Boolean(
+      mbEnabled &&
+      typeof UrlFetchApp !== 'undefined' &&
+      UrlFetchApp &&
+      typeof UrlFetchApp.fetchAll === 'function' &&
+      this.itunesService &&
+      typeof this.itunesService.buildSearchRequest === 'function' &&
+      typeof this.itunesService.parseSearchResponse === 'function' &&
+      mbService &&
+      typeof mbService.buildSearchRequest === 'function' &&
+      typeof mbService.executeWithRetryFromInitialResponse === 'function'
+    );
+
+    if (canUseFetchAll) {
+      const itunesReq = this.itunesService.buildSearchRequest(cleaned);
+      const mbReq = mbService.buildSearchRequest(cleaned);
+      if (itunesReq && mbReq) {
+        try {
+          if (typeof mbService.enforceRateLimit_ === 'function') {
+            mbService.enforceRateLimit_();
+          }
+          const responses = UrlFetchApp.fetchAll([itunesReq, mbReq]);
+          handledViaFetchAll = true;
+
+          try {
+            itunesAlbums = this.itunesService.parseSearchResponse(responses[0]) || [];
+            sources.itunes = { ok: true, count: itunesAlbums.length };
+          } catch (itErr) {
+            sources.itunes = {
+              ok: false,
+              count: 0,
+              error: itErr.message || 'iTunes検索に失敗しました'
+            };
+          }
+
+          try {
+            mbAlbums = mbService.executeWithRetryFromInitialResponse(mbReq, responses[1]) || [];
+            sources.musicbrainz = { ok: true, count: mbAlbums.length };
+          } catch (mbErr) {
+            sources.musicbrainz = {
+              ok: false,
+              count: 0,
+              error: mbErr.message || 'MusicBrainz検索に失敗しました'
+            };
+          }
+        } catch (fetchAllErr) {
+          handledViaFetchAll = false;
+        }
+      }
+    }
+
+    if (!handledViaFetchAll) {
+      try {
+        itunesAlbums = (this.itunesService && typeof this.itunesService.searchAlbums === 'function')
+          ? (this.itunesService.searchAlbums(cleaned) || [])
+          : [];
+        sources.itunes = { ok: true, count: itunesAlbums.length };
+      } catch (itErr) {
+        sources.itunes = {
+          ok: false,
+          count: 0,
+          error: itErr.message || 'iTunes検索に失敗しました'
+        };
+      }
+
+      if (mbEnabled) {
+        try {
+          mbAlbums = (mbService && typeof mbService.searchReleases === 'function')
+            ? (mbService.searchReleases(cleaned) || [])
+            : [];
+          sources.musicbrainz = { ok: true, count: mbAlbums.length };
+        } catch (mbErr) {
+          sources.musicbrainz = {
+            ok: false,
+            count: 0,
+            error: mbErr.message || 'MusicBrainz検索に失敗しました'
+          };
+        }
+      }
+    }
+
+    if (!sources.itunes.ok && (!mbEnabled || !sources.musicbrainz.ok)) {
+      const reasons = [sources.itunes.error, sources.musicbrainz.error].filter(Boolean).join(' / ');
+      const err = new Error(`アルバム検索に失敗しました: ${reasons || 'すべての検索ソースでエラーが発生しました'}`);
+      err.code = 'ALBUM_SEARCH_ALL_FAILED';
+      throw err;
+    }
+
+    const mergedAlbums = this.mergeAlbumSearchResults(itunesAlbums, mbAlbums);
+
+    return {
+      albums: mergedAlbums,
+      sources: sources
+    };
+  }
+
+  /**
+   * iTunes 検索結果と MusicBrainz 検索結果のマージ・重複排除・ソート（純粋関数）
+   * @param {Array<object>} itunesAlbums
+   * @param {Array<object>} mbAlbums
+   * @returns {Array<AlbumSearchResult>}
+   */
+  mergeAlbumSearchResults(itunesAlbums, mbAlbums) {
+    const safeItunes = Array.isArray(itunesAlbums) ? itunesAlbums : [];
+    const safeMb = Array.isArray(mbAlbums) ? mbAlbums : [];
+
+    const normalizedItunes = safeItunes
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => {
+        const colId = (item.collectionId !== undefined && item.collectionId !== null) ? item.collectionId : '';
+        const sourceId = String(item.sourceId !== undefined && item.sourceId !== null ? item.sourceId : colId);
+        return {
+          ...item,
+          source: 'itunes',
+          sourceId: sourceId
+        };
+      });
+
+    const extractYear = (dateStr) => {
+      if (!dateStr) return '';
+      const m = String(dateStr).trim().match(/^(\d{4})/);
+      return m ? m[1] : '';
+    };
+
+    const isDuplicateOfItunes = (mbItem) => {
+      const mbNameNorm = this.normalizeForComparison_(mbItem.albumName);
+      const mbArtistNorm = this.normalizeForComparison_(mbItem.albumArtist);
+      const mbTrackCount = Number(mbItem.trackCount) || 0;
+      const mbYear = extractYear(mbItem.releaseDate);
+
+      if (!mbNameNorm || !mbArtistNorm || mbTrackCount <= 0 || !mbYear) {
+        return false;
+      }
+
+      for (let i = 0; i < normalizedItunes.length; i++) {
+        const itItem = normalizedItunes[i];
+        const itNameNorm = this.normalizeForComparison_(itItem.albumName);
+        const itArtistNorm = this.normalizeForComparison_(itItem.albumArtist);
+        const itTrackCount = Number(itItem.trackCount) || 0;
+        const itYear = extractYear(itItem.releaseDate);
+
+        if (!itNameNorm || !itArtistNorm || itTrackCount <= 0 || !itYear) {
+          continue;
+        }
+
+        if (
+          itNameNorm === mbNameNorm &&
+          itArtistNorm === mbArtistNorm &&
+          itTrackCount === mbTrackCount &&
+          itYear === mbYear
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const indexedMb = [];
+    for (let i = 0; i < safeMb.length; i++) {
+      const item = safeMb[i];
+      if (!item || typeof item !== 'object') continue;
+
+      const normalizedItem = {
+        ...item,
+        source: 'musicbrainz',
+        sourceId: String(item.sourceId || item.id || '')
+      };
+
+      if (isDuplicateOfItunes(normalizedItem)) {
+        continue;
+      }
+
+      const rawScore = (normalizedItem.extra && normalizedItem.extra.score !== undefined)
+        ? Number(normalizedItem.extra.score)
+        : Number(normalizedItem.score);
+      const score = Number.isFinite(rawScore) ? rawScore : 0;
+
+      indexedMb.push({
+        item: normalizedItem,
+        score: score,
+        index: i
+      });
+    }
+
+    indexedMb.sort((a, b) => (b.score - a.score) || (a.index - b.index));
+    const sortedMb = indexedMb.map((entry) => entry.item);
+
+    return normalizedItunes.concat(sortedMb);
+  }
+
+  /**
+   * 重複判定用の文字列正規化ヘルパー (ADR-004)
+   * Unicode NFKC -> 小文字化 -> 前後空白除去 -> 連続空白・句読点・記号の除去
+   * ※記号のみのタイトル（"+" や "=" 等）で記号除去後に空文字となる場合は空白除去のみの文字列へフォールバック
+   * @param {string} str
+   * @returns {string}
+   */
+  normalizeForComparison_(str) {
+    if (str === null || str === undefined) return '';
+    const nfkc = String(str).normalize('NFKC').toLowerCase().trim();
+    if (!nfkc) return '';
+
+    const noSpaces = nfkc.replace(/\s+/g, '');
+    if (!noSpaces) return '';
+
+    const stripped = noSpaces.replace(/[\p{P}\p{S}]/gu, '');
+    return stripped.length > 0 ? stripped : noSpaces;
+  }
+
+  /**
    * iTunesからアルバム収録曲・ディスク情報を取得
    * @param {number|string} collectionId 
    * @returns {{ albumDetail: ItunesAlbumDetail }}
@@ -58,6 +306,29 @@ class MusicService {
       throw err;
     }
     const detail = this.itunesService.lookupAlbumSongs(collectionId);
+    return {
+      albumDetail: detail
+    };
+  }
+
+  /**
+   * MusicBrainzからリリース収録曲・メディア情報を取得
+   * @param {string} mbid
+   * @returns {{ albumDetail: AlbumDetail }}
+   */
+  lookupMusicBrainzRelease(mbid) {
+    if (!mbid || typeof mbid !== 'string' || !mbid.trim()) {
+      const err = new Error('MusicBrainz リリースID (MBID) が指定されていません。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const mbService = this.musicBrainzService || (MusicBrainzService ? new MusicBrainzService(this.config) : null);
+    if (!mbService) {
+      const err = new Error('MusicBrainzService が初期化されていません。');
+      err.code = 'MUSICBRAINZ_SERVICE_UNAVAILABLE';
+      throw err;
+    }
+    const detail = mbService.lookupRelease(mbid.trim());
     return {
       albumDetail: detail
     };

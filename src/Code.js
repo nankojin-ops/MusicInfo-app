@@ -1,3 +1,10 @@
+var Config = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
+var SheetService = (typeof SheetService !== 'undefined') ? SheetService : (typeof require !== 'undefined' ? require('./SheetService') : null);
+var DriveService = (typeof DriveService !== 'undefined') ? DriveService : (typeof require !== 'undefined' ? require('./DriveService') : null);
+var ItunesService = (typeof ItunesService !== 'undefined') ? ItunesService : (typeof require !== 'undefined' ? require('./ItunesService') : null);
+var MusicBrainzService = (typeof MusicBrainzService !== 'undefined') ? MusicBrainzService : (typeof require !== 'undefined' ? require('./MusicBrainzService') : null);
+var MusicService = (typeof MusicService !== 'undefined') ? MusicService : (typeof require !== 'undefined' ? require('./MusicService') : null);
+
 /**
  * Web Apps エントリーポイント
  * @param {GoogleAppsScript.Events.DoGet} e
@@ -38,7 +45,8 @@ function getMusicService() {
   const sheetService = new SheetService(config);
   const driveService = new DriveService(config);
   const itunesService = new ItunesService();
-  return new MusicService(config, sheetService, driveService, itunesService);
+  const musicBrainzService = new MusicBrainzService(config);
+  return new MusicService(config, sheetService, driveService, itunesService, musicBrainzService);
 }
 
 /**
@@ -59,6 +67,30 @@ function apiGetAllData() {
       success: false,
       error: err.message,
       code: err.code || 'DATA_FETCH_ERROR',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * 【RPC】統合アルバム検索API（iTunes + MusicBrainz）
+ * @param {string} keyword
+ * @returns {ApiResponse}
+ */
+function apiSearchAlbums(keyword) {
+  try {
+    const data = getMusicService().searchAlbums(keyword);
+    return {
+      success: true,
+      data: data,
+      timestamp: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error('apiSearchAlbums エラー:', err);
+    return {
+      success: false,
+      error: err.message,
+      code: err.code || 'ALBUM_SEARCH_ERROR',
       timestamp: new Date().toISOString()
     };
   }
@@ -113,7 +145,31 @@ function apiLookupItunesAlbum(collectionId) {
 }
 
 /**
- * 【RPC】iTunesアルバム一括保存API
+ * 【RPC】MusicBrainzリリース収録曲Lookup API
+ * @param {string} mbid
+ * @returns {ApiResponse}
+ */
+function apiLookupMusicBrainzRelease(mbid) {
+  try {
+    const data = getMusicService().lookupMusicBrainzRelease(mbid);
+    return {
+      success: true,
+      data: data,
+      timestamp: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error('apiLookupMusicBrainzRelease エラー:', err);
+    return {
+      success: false,
+      error: err.message,
+      code: err.code || 'MUSICBRAINZ_LOOKUP_ERROR',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * 【RPC】アルバム一括保存API（iTunes / MusicBrainz 共通）
  * @param {BatchSavePayload} payload 
  * @returns {ApiResponse}
  */
@@ -186,8 +242,10 @@ if (typeof module !== 'undefined' && module.exports) {
     include,
     getMusicService,
     apiGetAllData,
+    apiSearchAlbums,
     apiSearchItunes,
     apiLookupItunesAlbum,
+    apiLookupMusicBrainzRelease,
     apiSaveAlbumBatch,
     apiSaveTrackSingle,
     apiUpdateAlbumBatch

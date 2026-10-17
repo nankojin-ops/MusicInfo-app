@@ -60,6 +60,25 @@ assert(config.getSheetName() === 'CustomTracks', 'カスタムシート名の取
 assert(config.validate() === true, '必須プロパティ検証成功');
 assert(Config.CONSTANTS.SHEET_HEADERS.length === 8, '8列ヘッダー定義が存在する');
 assert(Config.CONSTANTS.ITUNES.SEARCH_URL.includes('itunes.apple.com'), 'iTunesエンドポイント定数');
+assert(Config.CONSTANTS.MUSICBRAINZ && Config.CONSTANTS.MUSICBRAINZ.RELEASE_ENDPOINT.includes('musicbrainz.org/ws/2/release'), 'MusicBrainzエンドポイント定数');
+assert(Config.CONSTANTS.MUSICBRAINZ.CAA_BASE_URL.includes('coverartarchive.org/release'), 'Cover Art Archive エンドポイント定数');
+assert(config.getMusicBrainzUserAgent() === 'MusicInfoApp/1.0 ( https://github.com/nankojin-ops/MusicInfo-app )', 'デフォルトMusicBrainz User-Agentの取得');
+assert(config.isMusicBrainzEnabled() === true, 'デフォルトMusicBrainz有効状態(true)');
+
+// カスタムUAおよび機能スイッチ無効化のプロパティ検証
+global.PropertiesService = {
+  getScriptProperties: () => ({
+    getProperties: () => ({
+      SPREADSHEET_ID: 'test-ss-id',
+      DRIVE_FOLDER_ID: 'test-drive-id',
+      MUSICBRAINZ_USER_AGENT: 'CustomMusicApp/2.0 ( mailto:test@example.com )',
+      MUSICBRAINZ_ENABLED: 'false'
+    })
+  })
+};
+const customMbConfig = new Config();
+assert(customMbConfig.getMusicBrainzUserAgent() === 'CustomMusicApp/2.0 ( mailto:test@example.com )', 'スクリプトプロパティによるMusicBrainz UA上書き');
+assert(customMbConfig.isMusicBrainzEnabled() === false, 'MUSICBRAINZ_ENABLED="false" による無効化スイッチ');
 
 // 空プロパティ時の例外テスト
 global.PropertiesService = {
@@ -108,6 +127,210 @@ assert(
   'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/500x500bb.jpg',
   '500x500アートワークURL置換'
 );
+assert(itunesService.buildSearchRequest('   ') === null, 'ItunesService.buildSearchRequest: 空キーワードでnull');
+const itReqSample = itunesService.buildSearchRequest('Official髭男dism');
+assert(itReqSample && itReqSample.url.includes('itunes.apple.com/search') && itReqSample.muteHttpExceptions === true, 'ItunesService.buildSearchRequest: リクエストオブジェクト生成');
+
+// 3.1. MusicBrainzService のテスト
+console.log('\n[3.1] MusicBrainzService のテスト');
+const MusicBrainzService = require('../src/MusicBrainzService');
+const mbService = new MusicBrainzService(config);
+
+const validMbid = 'b1234567-89ab-cdef-0123-456789abcdef';
+assert(mbService.isValidMbid(validMbid) === true, 'isValidMbid: 正常な小文字UUID');
+assert(mbService.isValidMbid(validMbid.toUpperCase()) === true, 'isValidMbid: 正常な大文字UUID');
+assert(mbService.isValidMbid('12345') === false, 'isValidMbid: 数値文字列を拒否');
+assert(mbService.isValidMbid('../release/hack') === false, 'isValidMbid: パストラバーサル文字列を拒否');
+assert(mbService.isValidMbid('<script>alert(1)</script>') === false, 'isValidMbid: XSS文字列を拒否');
+assert(mbService.isValidMbid('') === false, 'isValidMbid: 空文字を拒否');
+
+const sanitizedQuery = mbService.sanitizeSearchQuery('AC/DC + "Live" (2026) *test*');
+assert(sanitizedQuery.includes('\\/') && sanitizedQuery.includes('\\+') && sanitizedQuery.includes('\\"') && sanitizedQuery.includes('\\('), 'sanitizeSearchQuery: Lucene特殊文字エスケープ');
+
+assert(
+  mbService.formatArtistCredit([
+    { name: 'Official髭男dism', joinphrase: ' feat. ' },
+    { artist: { name: 'Guest Vocal' }, joinphrase: '' }
+  ]) === 'Official髭男dism feat. Guest Vocal',
+  'formatArtistCredit: 複数アーティストとjoinphraseの連結'
+);
+assert(mbService.formatArtistCredit([], '不明なアーティスト') === '不明なアーティスト', 'formatArtistCredit: 空配列時のフォールバック');
+
+assert(
+  mbService.buildCoverArtUrl(validMbid, 250) === `https://coverartarchive.org/release/${validMbid}/front-250`,
+  'buildCoverArtUrl: 250px CAA URL生成'
+);
+assert(
+  mbService.buildCoverArtUrl(validMbid, 500) === `https://coverartarchive.org/release/${validMbid}/front-500`,
+  'buildCoverArtUrl: 500px CAA URL生成'
+);
+assert(mbService.buildCoverArtUrl('invalid-mbid', 250) === '', 'buildCoverArtUrl: 不正MBID時は空文字を返す');
+
+// searchReleases モック検証 (UAヘッダ・1100msレート制御・503リトライ)
+let capturedFetchCalls = [];
+let sleepCalls = [];
+let mockCacheStore = {};
+
+global.CacheService = {
+  getScriptCache: () => ({
+    get: (key) => mockCacheStore[key] || null,
+    put: (key, val) => { mockCacheStore[key] = val; }
+  })
+};
+global.Utilities = {
+  sleep: (ms) => { sleepCalls.push(ms); },
+  formatDate: (d) => '2026-10-18'
+};
+
+global.UrlFetchApp = {
+  fetch: (url, options) => {
+    capturedFetchCalls.push({ url, options });
+    return {
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({
+        releases: [
+          {
+            id: validMbid,
+            score: 100,
+            title: 'Editorial (初回限定盤)',
+            status: 'Official',
+            disambiguation: 'CD+DVD',
+            date: '2021-08-18',
+            country: 'JP',
+            'track-count': 18,
+            'artist-credit': [{ name: 'Official髭男dism' }],
+            media: [
+              { format: 'CD', 'track-count': 14 },
+              { format: 'DVD', 'track-count': 4 }
+            ]
+          }
+        ]
+      })
+    };
+  }
+};
+
+const mbSearchRes = mbService.searchReleases('Official髭男dism');
+assert(capturedFetchCalls.length === 1, 'searchReleases: UrlFetchApp.fetch が1回呼ばれた');
+assert(
+  capturedFetchCalls[0].options &&
+  capturedFetchCalls[0].options.headers &&
+  capturedFetchCalls[0].options.headers['User-Agent'] === 'MusicInfoApp/1.0 ( https://github.com/nankojin-ops/MusicInfo-app )' &&
+  capturedFetchCalls[0].options.headers['Accept'] === 'application/json',
+  'searchReleases: User-Agent および Accept: application/json ヘッダが付与されていること (AC-13)'
+);
+assert(
+  capturedFetchCalls[0].url.includes('dismax=true') && capturedFetchCalls[0].url.includes('fmt=json'),
+  'searchReleases: クエリパラメータに dismax=true と fmt=json が含まれること'
+);
+assert(mbSearchRes.length === 1 && mbSearchRes[0].source === 'musicbrainz', 'searchReleases: source === "musicbrainz" で正規化される');
+assert(mbSearchRes[0].sourceId === validMbid, 'searchReleases: sourceId に MBID がセットされる');
+assert(mbSearchRes[0].extra.format === 'CD + DVD' && mbSearchRes[0].extra.discCount === 2 && mbSearchRes[0].extra.country === 'JP', 'searchReleases: extra に format / discCount / country が抽出される');
+
+// 連続呼び出し時の 1,100ms 間隔制御検証 (AC-12)
+sleepCalls = [];
+mbService.searchReleases('Second Query');
+assert(sleepCalls.length >= 1 && sleepCalls[0] > 0 && sleepCalls[0] <= 1100, 'enforceRateLimit_: 連続リクエスト時に Utilities.sleep で1,100ms間隔制御が働くこと (AC-12)');
+
+// HTTP 503 時の1回限定リトライ成功・再失敗検証 (AC-12)
+let attempt503 = 0;
+global.UrlFetchApp = {
+  fetch: () => {
+    attempt503++;
+    if (attempt503 === 1) {
+      return { getResponseCode: () => 503, getContentText: () => 'Service Unavailable' };
+    }
+    return {
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({ releases: [] })
+    };
+  }
+};
+const retrySuccessRes = mbService.searchReleases('Retry Test');
+assert(attempt503 === 2 && Array.isArray(retrySuccessRes), 'searchReleases: HTTP 503 応答時に1回リトライして2回目200で成功すること');
+
+let attemptAlways503 = 0;
+global.UrlFetchApp = {
+  fetch: () => {
+    attemptAlways503++;
+    return { getResponseCode: () => 503, getContentText: () => 'Service Unavailable' };
+  }
+};
+assertThrows(
+  () => mbService.searchReleases('Always 503'),
+  'MUSICBRAINZ_RATE_LIMITED',
+  'searchReleases: HTTP 503 がリトライ後も続く場合は最大1回リトライで打ち切り MUSICBRAINZ_RATE_LIMITED 例外'
+);
+assert(attemptAlways503 === 2, 'searchReleases: 503 連続失敗時の総リクエスト回数は初回+リトライ1回の計2回であること');
+
+// lookupRelease の検証 (不正MBID遮断・アナログ盤 number:"A1" 対策・CAA front判定)
+let lookupFetchCount = 0;
+global.UrlFetchApp = {
+  fetch: () => {
+    lookupFetchCount++;
+    return {
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({
+        id: validMbid,
+        title: 'Multi Format Release',
+        date: '2021-08',
+        'artist-credit': [{ name: 'Official髭男dism' }],
+        'cover-art-archive': { front: true },
+        media: [
+          {
+            position: 2,
+            format: 'DVD',
+            'track-count': 1,
+            tracks: [
+              { position: 1, number: 'DVD-1', title: 'Live Movie', 'artist-credit': [{ name: 'Official髭男dism' }] }
+            ]
+          },
+          {
+            position: 1,
+            format: '12" Vinyl',
+            'track-count': 2,
+            tracks: [
+              { position: 2, number: 'B1', title: 'Vinyl Side B', 'artist-credit': [] },
+              { position: 1, number: 'A1', title: 'Vinyl Side A', 'artist-credit': [{ name: 'Guest Artist' }] }
+            ]
+          }
+        ]
+      })
+    };
+  }
+};
+
+assertThrows(
+  () => mbService.lookupRelease('not-a-valid-uuid'),
+  'VALIDATION_FAILED',
+  'lookupRelease: 不正MBIDは VALIDATION_FAILED で拒否されること (AC-8)'
+);
+assert(lookupFetchCount === 0, 'lookupRelease: 不正MBID時は外部HTTP通信が1回も行われないこと (AC-8)');
+
+const mbDetail = mbService.lookupRelease(validMbid);
+assert(mbDetail.source === 'musicbrainz' && mbDetail.sourceId === validMbid, 'lookupRelease: source と sourceId が設定される');
+assert(mbDetail.releaseDate === '2021-08', 'lookupRelease: 部分日付(YYYY-MM)が捏造されずそのまま保持される (Q-5)');
+assert(mbDetail.artworkUrl500 === `https://coverartarchive.org/release/${validMbid}/front-500`, 'lookupRelease: cover-art-archive.front===true 時に CAA front-500 URLが設定される (AC-7)');
+assert(mbDetail.tracks.length === 3, 'lookupRelease: 全メディア(Vinyl + DVD)の計3曲が抽出される (Q-4)');
+assert(mbDetail.tracks[0].cdNumber === 1 && mbDetail.tracks[0].trackNumber === 1 && mbDetail.tracks[0].trackName === 'Vinyl Side A', 'lookupRelease: number("A1")ではなく position(1) で整列・抽出される (AC-6)');
+assert(mbDetail.tracks[1].cdNumber === 1 && mbDetail.tracks[1].trackNumber === 2 && mbDetail.tracks[1].trackArtist === 'Official髭男dism', 'lookupRelease: トラックアーティスト空時にアルバムアーティストへフォールバック');
+assert(mbDetail.tracks[2].cdNumber === 2 && mbDetail.tracks[2].mediumFormat === 'DVD', 'lookupRelease: Disc 2 に mediumFormat("DVD") が保持される');
+
+// cover-art-archive.front === false 時の検証
+global.UrlFetchApp = {
+  fetch: () => ({
+    getResponseCode: () => 200,
+    getContentText: () => JSON.stringify({
+      id: validMbid,
+      title: 'No Cover Album',
+      'artist-credit': [{ name: 'Artist' }],
+      'cover-art-archive': { front: false },
+      media: [{ position: 1, format: 'CD', tracks: [{ position: 1, title: 'Song 1' }] }]
+    })
+  })
+};
+const noCoverDetail = mbService.lookupRelease(validMbid);
+assert(noCoverDetail.artworkUrl100 === '' && noCoverDetail.artworkUrl500 === '', 'lookupRelease: front===false 時は artworkUrl が空文字になること (AC-7)');
 
 // 4. MusicService バリデーションのテスト
 console.log('\n[4] MusicService バリデーションのテスト');
@@ -120,9 +343,19 @@ assertThrows(
   '空キーワードでのiTunes検索例外'
 );
 assertThrows(
+  () => musicService.searchAlbums('   '),
+  'VALIDATION_FAILED',
+  '空キーワードでの統合検索(searchAlbums)例外'
+);
+assertThrows(
   () => musicService.lookupItunesAlbum(''),
   'VALIDATION_FAILED',
   '空コレクションIDでのLookup例外'
+);
+assertThrows(
+  () => musicService.lookupMusicBrainzRelease('invalid-uuid'),
+  'VALIDATION_FAILED',
+  '不正MBIDでのMusicService.lookupMusicBrainzRelease例外'
 );
 assertThrows(
   () => musicService.saveAlbumFromItunes({ albumName: '', albumArtist: 'Artist', tracks: [] }),
@@ -167,6 +400,205 @@ assert(
   capturedAppendPayload && capturedAppendPayload.artworkUrl === 'https://lh3.googleusercontent.com/d/saveTestId123456789012345',
   'MusicService.saveSingleTrack: ensurePublicArtwork 経由で公開URLに正規化されて保存されること'
 );
+
+// 4.1. MusicService 統合検索・マージ・重複判定4条件・並び順・片側障害フォールバック検証
+console.log('\n[4.1] MusicService 統合検索・重複判定・並び順・障害分離のテスト');
+
+const baseItunesItem = {
+  collectionId: 1001,
+  albumName: 'Editorial',
+  albumArtist: 'Official髭男dism',
+  releaseDate: '2021-08-18',
+  trackCount: 14,
+  artworkUrl100: 'https://example.com/it100.jpg',
+  artworkUrl500: 'https://example.com/it500.jpg',
+  primaryGenreName: 'J-Pop'
+};
+
+// ① 4条件すべて一致（NFKC全角・空白・句読点差を含む）→ MB側が非表示になること (AC-3)
+const mergedDup = musicService.mergeAlbumSearchResults(
+  [baseItunesItem],
+  [{
+    sourceId: validMbid,
+    albumName: 'Ｅｄｉｔｏｒｉａｌ',
+    albumArtist: 'Official 髭男 dism',
+    releaseDate: '2021-08',
+    trackCount: 14,
+    extra: { score: 100 }
+  }]
+);
+assert(mergedDup.length === 1 && mergedDup[0].source === 'itunes', '重複判定①: 4条件すべて一致時はMB項目が非表示になりiTunes項目のみ残る');
+
+// ② アルバム名が異なる（Deluxe表記あり）→ 両方残ること (AC-3)
+const mergedDiffAlbum = musicService.mergeAlbumSearchResults(
+  [baseItunesItem],
+  [{
+    sourceId: validMbid,
+    albumName: 'Editorial (Deluxe Edition)',
+    albumArtist: 'Official髭男dism',
+    releaseDate: '2021-08-18',
+    trackCount: 14,
+    extra: { score: 100 }
+  }]
+);
+assert(mergedDiffAlbum.length === 2, '重複判定②: アルバム名(括弧内版表記)が異なる場合は両方表示される');
+
+// ③ アーティスト名が異なる → 両方残ること (AC-3)
+const mergedDiffArtist = musicService.mergeAlbumSearchResults(
+  [baseItunesItem],
+  [{
+    sourceId: validMbid,
+    albumName: 'Editorial',
+    albumArtist: 'OFFICIAL HIGE DANDISM',
+    releaseDate: '2021-08-18',
+    trackCount: 14,
+    extra: { score: 100 }
+  }]
+);
+assert(mergedDiffArtist.length === 2, '重複判定③: アーティスト名表記が異なる場合は両方表示される');
+
+// ④ 曲数が異なる（14曲 vs 18曲）→ 両方残ること (AC-3)
+const mergedDiffTracks = musicService.mergeAlbumSearchResults(
+  [baseItunesItem],
+  [{
+    sourceId: validMbid,
+    albumName: 'Editorial',
+    albumArtist: 'Official髭男dism',
+    releaseDate: '2021-08-18',
+    trackCount: 18,
+    extra: { score: 100 }
+  }]
+);
+assert(mergedDiffTracks.length === 2, '重複判定④: トラック数が異なる場合は両方表示される');
+
+// ⑤ リリース年が異なる、または片方欠損 → 両方残ること (AC-3)
+const mergedDiffYear = musicService.mergeAlbumSearchResults(
+  [baseItunesItem],
+  [
+    {
+      sourceId: validMbid,
+      albumName: 'Editorial',
+      albumArtist: 'Official髭男dism',
+      releaseDate: '2022-08-18',
+      trackCount: 14,
+      extra: { score: 100 }
+    },
+    {
+      sourceId: 'c1234567-89ab-cdef-0123-456789abcdef',
+      albumName: 'Editorial',
+      albumArtist: 'Official髭男dism',
+      releaseDate: '',
+      trackCount: 14,
+      extra: { score: 95 }
+    }
+  ]
+);
+assert(mergedDiffYear.length === 3, '重複判定⑤: リリース年不一致または欠損時は両方表示される');
+
+// ⑥ 記号のみのアルバム名（"+" vs "="）→ 誤統合されないこと
+const mergedSymbols = musicService.mergeAlbumSearchResults(
+  [{ collectionId: 2001, albumName: '+', albumArtist: 'Ed Sheeran', releaseDate: '2011-09-09', trackCount: 12 }],
+  [{ sourceId: validMbid, albumName: '=', albumArtist: 'Ed Sheeran', releaseDate: '2011-09-09', trackCount: 12, extra: { score: 100 } }]
+);
+assert(mergedSymbols.length === 2, '重複判定⑥: 記号のみの異なるアルバム名("+" と "=")が誤統合されないこと');
+
+// 並び順の検証: iTunesブロック(元の順序) → MBブロック(score降順、同点は元の順序) (AC-2)
+const sortedMerged = musicService.mergeAlbumSearchResults(
+  [
+    { collectionId: 10, albumName: 'iTunes First', albumArtist: 'A', releaseDate: '2020', trackCount: 10 },
+    { collectionId: 20, albumName: 'iTunes Second', albumArtist: 'A', releaseDate: '2021', trackCount: 10 }
+  ],
+  [
+    { sourceId: 'mb-low', albumName: 'MB Low Score', albumArtist: 'A', releaseDate: '2019', trackCount: 10, extra: { score: 70 } },
+    { sourceId: 'mb-high-1', albumName: 'MB High 1', albumArtist: 'A', releaseDate: '2018', trackCount: 10, extra: { score: 95 } },
+    { sourceId: 'mb-high-2', albumName: 'MB High 2', albumArtist: 'A', releaseDate: '2017', trackCount: 10, extra: { score: 95 } }
+  ]
+);
+assert(
+  sortedMerged.length === 5 &&
+  sortedMerged[0].sourceId === '10' &&
+  sortedMerged[1].sourceId === '20' &&
+  sortedMerged[2].sourceId === 'mb-high-1' &&
+  sortedMerged[3].sourceId === 'mb-high-2' &&
+  sortedMerged[4].sourceId === 'mb-low',
+  '並び順検証: 先頭にiTunes結果(API順)、続けてMB結果(score降順・同点は元の順序)で整列される (AC-2)'
+);
+
+// 片側失敗フォールバックの検証 (AC-4, AC-5)
+const okItunesMock = { searchAlbums: () => [baseItunesItem] };
+const failItunesMock = { searchAlbums: () => { throw new Error('iTunes 500 Error'); } };
+const okMbMock = {
+  isEnabled: () => true,
+  searchReleases: () => [{
+    source: 'musicbrainz',
+    sourceId: validMbid,
+    albumName: 'MB Only Album',
+    albumArtist: 'Official髭男dism',
+    releaseDate: '2023-01-01',
+    trackCount: 10,
+    extra: { score: 100 }
+  }]
+};
+const failMbMock = {
+  isEnabled: () => true,
+  searchReleases: () => {
+    const err = new Error('MusicBrainz 503');
+    err.code = 'MUSICBRAINZ_RATE_LIMITED';
+    throw err;
+  }
+};
+
+// MBのみ失敗 → iTunes結果を返し sources.musicbrainz.ok === false
+const msMbFail = new MusicService(config, {}, driveService, okItunesMock, failMbMock);
+const resMbFail = msMbFail.searchAlbums('髭男');
+assert(
+  resMbFail.albums.length === 1 &&
+  resMbFail.albums[0].source === 'itunes' &&
+  resMbFail.sources.itunes.ok === true &&
+  resMbFail.sources.musicbrainz.ok === false,
+  '片側失敗フォールバック: MusicBrainz失敗時もiTunes結果を返却し sources.musicbrainz.ok===false となる (AC-4)'
+);
+
+// iTunesのみ失敗 → MB結果を返し sources.itunes.ok === false
+const msItFail = new MusicService(config, {}, driveService, failItunesMock, okMbMock);
+const resItFail = msItFail.searchAlbums('髭男');
+assert(
+  resItFail.albums.length === 1 &&
+  resItFail.albums[0].source === 'musicbrainz' &&
+  resItFail.sources.itunes.ok === false &&
+  resItFail.sources.musicbrainz.ok === true,
+  '片側失敗フォールバック: iTunes失敗時もMusicBrainz結果を返却し sources.itunes.ok===false となる (AC-4)'
+);
+
+// 両方失敗 → ALBUM_SEARCH_ALL_FAILED 例外 (AC-5)
+const msAllFail = new MusicService(config, {}, driveService, failItunesMock, failMbMock);
+assertThrows(
+  () => msAllFail.searchAlbums('髭男'),
+  'ALBUM_SEARCH_ALL_FAILED',
+  '両方失敗時: ALBUM_SEARCH_ALL_FAILED 例外を送出する (AC-5)'
+);
+
+// 機能スイッチ無効時の検証 (AC-11)
+let mbCalledWhenDisabled = false;
+const spyMbMock = {
+  isEnabled: () => false,
+  searchReleases: () => { mbCalledWhenDisabled = true; return []; }
+};
+const msDisabled = new MusicService(customMbConfig, {}, driveService, okItunesMock, spyMbMock);
+const resDisabled = msDisabled.searchAlbums('髭男');
+assert(
+  mbCalledWhenDisabled === false &&
+  resDisabled.albums.length === 1 &&
+  resDisabled.sources.musicbrainz.skipped === true,
+  '機能スイッチ無効時: MusicBrainzを呼び出さずiTunes結果のみ返し skipped===true となる (AC-11)'
+);
+
+// Code.js 新規RPC (apiSearchAlbums / apiLookupMusicBrainzRelease) の検証
+const Code = require('../src/Code');
+assert(typeof Code.apiSearchAlbums === 'function', 'Code.apiSearchAlbums が公開されている');
+assert(typeof Code.apiLookupMusicBrainzRelease === 'function', 'Code.apiLookupMusicBrainzRelease が公開されている');
+const invalidMbidRpcRes = Code.apiLookupMusicBrainzRelease('invalid-mbid');
+assert(invalidMbidRpcRes.success === false && invalidMbidRpcRes.code === 'VALIDATION_FAILED', 'apiLookupMusicBrainzRelease: 不正MBID時に VALIDATION_FAILED レスポンスを返す');
 
 // 5. フロントエンド Utils クラスのテスト
 console.log('\n[5] Utils クラスのテスト (XSS & 日付)');
@@ -535,6 +967,35 @@ assertThrows(
   'ロック取得タイムアウト時の LOCK_TIMEOUT 例外'
 );
 
+// 6.5. SheetService.insertTracksBatch 部分日付 (YYYY-MM / YYYY) のプレーンテキスト書式保護検証 (Q-5)
+let capturedNumberFormat = null;
+let capturedInsertBatchRows = null;
+const mockSheetForPartialDate = {
+  getLastRow: () => 1,
+  getRange: (row, col, numRows, numCols) => ({
+    setNumberFormat: (fmt) => {
+      if (col === 7) capturedNumberFormat = fmt;
+    },
+    setValues: (vals) => {
+      capturedInsertBatchRows = vals;
+    }
+  })
+};
+global.SpreadsheetApp = {
+  openById: () => ({
+    getSheetByName: () => mockSheetForPartialDate
+  }),
+  flush: () => {}
+};
+const partialDateSheetService = new SheetService(config);
+partialDateSheetService.insertTracksBatch(
+  [{ cdNumber: 1, trackNumber: 1, trackName: 'Partial Date Song', trackArtist: 'Official髭男dism' }],
+  { albumName: 'Partial Date Album', albumArtist: 'Official髭男dism', releaseDate: '2021-08' },
+  'https://lh3.googleusercontent.com/d/art123'
+);
+assert(capturedNumberFormat === '@', 'SheetService.insertTracksBatch: G列(リリース日)にプレーンテキスト書式 "@" が設定されること (Q-5)');
+assert(capturedInsertBatchRows && capturedInsertBatchRows[0][6] === '2021-08', 'SheetService.insertTracksBatch: 部分日付 "2021-08" が加工されず書き込まれること (Q-5)');
+
 // 7. 全HTMLファイルのGAS include構文およびプレースホルダーなし検証
 console.log('\n[7] 全ファイルのプレースホルダーなし & 構文チェック');
 const srcDir = path.join(__dirname, '../src');
@@ -554,7 +1015,7 @@ files.forEach((file) => {
 
 // 8. 全ファイルの構文エラーチェック (vm.Script & JSON.parse)
 console.log('\n[8] 全ファイルの構文解析 (Syntax Check)');
-const jsFiles = ['Config.js', 'SheetService.js', 'DriveService.js', 'ItunesService.js', 'MusicService.js', 'Code.js'];
+const jsFiles = ['Config.js', 'SheetService.js', 'DriveService.js', 'ItunesService.js', 'MusicBrainzService.js', 'MusicService.js', 'Code.js'];
 jsFiles.forEach((file) => {
   const code = fs.readFileSync(path.join(srcDir, file), 'utf8');
   try {
@@ -592,16 +1053,29 @@ try {
   assert(false, `appsscript.json パースエラー: ${err.message}`);
 }
 
-// 9. src/index.html バンドル成果物の構文およびセキュリティ検査
+// 9. src/index.html バンドル成果物の構文・文言・セキュリティ検査
 console.log('\n[9] src/index.html バンドル成果物の構文およびセキュリティ検査');
 try {
   const indexHtmlPath = path.join(srcDir, 'index.html');
   assert(fs.existsSync(indexHtmlPath), 'src/index.html が存在する');
   const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+  const navbarHtml = fs.readFileSync(path.join(srcDir, 'Navbar.html'), 'utf8');
+  const itunesModalHtml = fs.readFileSync(path.join(srcDir, 'ItunesModal.html'), 'utf8');
 
-  // インライン onerror 属性の不在検証
+  // インライン onerror 属性の不在検証 (AC-10)
   const onerrorMatch = indexHtml.match(/\bonerror\s*=\s*["'][^"']*["']/i);
-  assert(!onerrorMatch, 'src/index.html 内にインライン onerror 属性が存在しないこと');
+  assert(!onerrorMatch, 'src/index.html 内にインライン onerror 属性が存在しないこと (AC-10)');
+
+  // ボタン名称・モーダル見出しの更新と旧文言不在検証 (AC-16, AC-17, AC-18)
+  assert(navbarHtml.includes('アルバム検索・一括登録') && navbarHtml.includes('>一括登録<'), 'Navbar.html に新ボタン名称（アルバム検索・一括登録 / 一括登録）が含まれること (AC-16)');
+  assert(itunesModalHtml.includes('アルバムを検索して一括登録') && itunesModalHtml.includes('iTunes / MusicBrainz'), 'ItunesModal.html に新見出しと補足表記が含まれること (AC-17)');
+  assert(indexHtml.includes('アルバム検索・一括登録') && indexHtml.includes('アルバムを検索して一括登録'), 'src/index.html にビルド後の新文言が反映されていること (AC-18)');
+  assert(
+    !indexHtml.includes('iTunesから一括登録') &&
+    !indexHtml.includes('iTunes登録') &&
+    !indexHtml.includes('iTunes一括登録'),
+    'src/index.html に旧ボタン文言（iTunesから一括登録 / iTunes登録 / iTunes一括登録）が残存していないこと (AC-18)'
+  );
 
   // 全 <script> タグの構文解析
   const scriptTags = [...indexHtml.matchAll(/<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gi)];

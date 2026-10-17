@@ -1,7 +1,7 @@
 # MusicInfo Manager - 音楽CD・アルバムコレクション管理 Web App
 
 Google Apps Script (GAS) + Tailwind CSS で構築された、音楽CD・アルバム・楽曲コレクション管理システムです。  
-iTunes Search / Lookup API と連携したアルバム・トラック一括インポート機能、Google Drive へのジャケット自動保存、および PC・スマートフォン双方で直感的に操作できる 3ペイン／ステップ型 UI を提供します。
+iTunes Search / Lookup API および MusicBrainz API（Cover Art Archive 連携）を統合したアルバム・トラック一括インポート機能、Google Drive へのジャケット自動保存、および PC・スマートフォン双方で直感的に操作できる 3ペイン／ステップ型 UI を提供します。
 
 ---
 
@@ -11,17 +11,18 @@ iTunes Search / Lookup API と連携したアルバム・トラック一括イ�
    - **PC**: 「アーティスト一覧」「アルバムカード一覧」「トラック詳細・ディスク別リスト」を同一画面の3ペインで快適に閲覧。
    - **スマートフォン**: 3ステップ式画面遷移（STEP 1: アーティスト → STEP 2: アルバム → STEP 3: トラック詳細）で、片手で快適に操作可能。
 
-2. **iTunes API 連携による一括登録 & 自動ディスク分割**
-   - アルバム名やアーティスト名で iTunes Store を検索。
-   - 収録曲・ディスク番号（`discNumber`）を自動抽出し、プレビュー確認後にワンクリックで一括登録。
-   - 複数枚組アルバム（2枚組ベスト盤など）も「Disc 1」「Disc 2」として正確に分離して管理。
+2. **iTunes & MusicBrainz API 統合検索による一括登録 & 自動ディスク分割**
+   - アルバム名やアーティスト名で iTunes Store と MusicBrainz の両データベースを同時に横断検索し、重複を抑止してマージ表示。
+   - 各候補に出典バッジ（`iTunes` / `MusicBrainz`）や版情報（形態 `CD/DVD`、国コード、枚数、補足注記）を表示。
+   - 収録曲・ディスク番号（`discNumber` / `media.position`）を自動抽出し、プレビュー確認後にワンクリックで一括登録。
+   - 複数枚組アルバム（2枚組ベスト盤や初回盤 CD+DVD など）も「Disc 1」「Disc 2」として正確に分離して管理。
 
 3. **Google Drive ジャケット画像自動保存**
-   - iTunes から取得した 500x500 高解像度ジャケット画像を自動的に Google Drive の指定フォルダへダウンロード・保存。
+   - iTunes または Cover Art Archive（MusicBrainz）から取得した 500x500 高解像度ジャケット画像を自動的に Google Drive の指定フォルダへダウンロード・保存。
    - 永続化された Web 表示用 URL をスプレッドシートへ記録し、ジャケットの拡大プレビュー（モーダル表示）にも対応。
 
 4. **1曲単位の手動登録 & 連続入力アシスト**
-   - iTunes に未登録の自主制作盤やインディーズ CD も手動で登録可能。
+   - 外部 DB に未登録の自主制作盤やインディーズ CD も手動で登録可能。
    - スマホ入力時は CD番号・トラック番号に自動でテンキー（`inputmode="numeric"`）を展開。
    - 「続けて次のトラックを登録する」機能により、トラック番号が自動インクリメントされ連続して素早く登録できます。
 
@@ -30,7 +31,7 @@ iTunes Search / Lookup API と連携したアルバム・トラック一括イ�
    - ヘッダー検索バーから、曲名・アルバム名・アーティスト名・CD番号での横断検索。一致した楽曲へ即座にジャンプ。
 
 6. **徹底したセキュリティ & パフォーマンス設計**
-   - HTML エスケープによる XSS 完全防護。
+   - HTML エスケープによる XSS 完全防護およびスプレッドシート式インジェクション無害化。
    - スプレッドシートへのバッチ書き込み（`setValues`）による高速保存。
    - クライアント側インメモリツリーキャッシュによる 100ms 未満のペイン切り替えレスポンス。
 
@@ -52,19 +53,22 @@ MusicInfo-app/
 │   ├── SheetService.js         # スプレッドシート読み書き・初期化・データ整形クラス (SheetService)
 │   ├── DriveService.js         # Google Drive画像ダウンロード・保存・URL生成クラス (DriveService)
 │   ├── ItunesService.js        # iTunes API通信・500x500変換・トラック抽出 (ItunesService)
-│   ├── MusicService.js         # 業務ロジック統括クラス (MusicService)
+│   ├── MusicBrainzService.js   # MusicBrainz WS v2 / Cover Art Archive 連携・レート制限クラス (MusicBrainzService)
+│   ├── MusicService.js         # 業務ロジック統括・検索結果マージクラス (MusicService)
 │   ├── Code.js                 # Web Appsエントリポイント (doGet, include, apiディスパッチャ)
 │   │
 │   │   ─── 【フロントエンド UI コンポーネント (HTML)】 ───
-│   ├── index.html              # メイン骨格 (3ペイン & スマホステップレイアウト)
+│   ├── index.html              # ビルド済み単一バンドルHTML (GASデプロイ対象)
+│   ├── index.template.html     # ビルド元HTMLテンプレート
 │   ├── Styles.html             # Tailwind CSS設定、カスタムスクロールバー、アニメーションCSS
 │   ├── Navbar.html             # ヘッダー、全体検索バー、各種登録ボタン
 │   ├── ArtistList.html         # STEP 1 アーティスト一覧コンポーネント
 │   ├── AlbumList.html          # STEP 2 アルバムカード一覧コンポーネント
 │   ├── TrackDetail.html        # STEP 3 トラック詳細・ディスク別テーブルコンポーネント
-│   ├── ItunesModal.html        # iTunes一括検索・プレビュー登録モーダル
+│   ├── ItunesModal.html        # アルバム統合検索（iTunes / MusicBrainz）・プレビュー一括登録モーダル
 │   ├── ManualModal.html        # 手動楽曲登録フォーム (連続入力アシスト・テンキー対応)
-│   ├── ImageModal.html         # アルバムアート 500x500 拡大プレビューモーダル
+│   ├── EditAlbumModal.html     # アルバム・収録曲一括編集モーダル
+│   ├── ImageModal.html         # アルバムアート拡大プレビューモーダル
 │   │
 │   │   ─── 【フロントエンド ロジック クラス群 (JavaScript)】 ───
 │   ├── ScriptsUtils.html       # XSSサニタイズ (escapeHtml)、トースト通知等 (Utils)
@@ -89,8 +93,8 @@ MusicInfo-app/
 | **D列** | アーティスト名 | 楽曲個別のアーティスト名 | `Official髭男dism` |
 | **E列** | トラック番号 | 収録トラック番号 (正整数) | `1`, `2`, `3` |
 | **F列** | トラック名 | 曲名 | `Cry Baby` |
-| **G列** | リリース日 | 発売日 (YYYY-MM-DD 形式) | `2021-08-18` |
-| **H列** | アルバムアートURL | Google Drive 保存先Web表示用URL | `https://drive.google.com/uc?export=view&id=...` |
+| **G列** | リリース日 | 発売日 (`YYYY-MM-DD` / `YYYY-MM` / `YYYY` 形式) | `2021-08-18` |
+| **H列** | アルバムアートURL | Google Drive 保存先Web表示用URL | `https://lh3.googleusercontent.com/d/...` |
 
 ---
 
@@ -106,9 +110,9 @@ MusicInfo-app/
 #### 方法 A: Google Apps Script エディタから手動配置
 1. 作成したスプレッドシートのメニューから「拡張機能」>「Apps Script」を開きます（または独立したスタンドアロンスクリプトを新規作成）。
 2. プロジェクトの「プロジェクトの設定」歯車アイコンをクリックし、「「appsscript.json」マニフェスト ファイルをエディタで表示する」にチェックを入れます。
-3. `src/` 配下の全20ファイルを同名で作成・コピー＆ペーストします。
-   - スクリプトファイル (`.js`): `Config`, `SheetService`, `DriveService`, `ItunesService`, `MusicService`, `Code`
-   - HTMLファイル (`.html`): `index`, `Styles`, `Navbar`, `ArtistList`, `AlbumList`, `TrackDetail`, `ItunesModal`, `ManualModal`, `ImageModal`, `ScriptsUtils`, `ScriptsApiClient`, `ScriptsState`, `ScriptsApp`
+3. `src/` 配下の全22ファイル（テンプレート除くデプロイ対象）を同名で作成・コピー＆ペーストします。
+   - スクリプトファイル (`.js`): `Config`, `SheetService`, `DriveService`, `ItunesService`, `MusicBrainzService`, `MusicService`, `Code`
+   - HTMLファイル (`.html`): `index`, `Styles`, `Navbar`, `ArtistList`, `AlbumList`, `TrackDetail`, `ItunesModal`, `ManualModal`, `EditAlbumModal`, `ImageModal`, `ScriptsUtils`, `ScriptsApiClient`, `ScriptsState`, `ScriptsApp`
    - マニフェスト: `appsscript.json`
 
 #### 方法 B: Clasp を用いた CLI デプロイ (推奨)
@@ -125,9 +129,9 @@ npm run login
 Copy-Item .clasp.json.sample .clasp.json
 # エディタで .clasp.json の YOUR_SCRIPT_ID_HERE を作成したGASプロジェクトのIDに書き換えます
 
-# 3. ソースコードを GAS に一括アップロード
+# 3. バンドルビルド＆ソースコードを GAS に一括アップロード
 npm run push
-# または: clasp push
+# または: npm run build && clasp push
 ```
 
 ---
@@ -140,6 +144,8 @@ GAS エディタ画面左側の「プロジェクトの設定」（歯車アイ�
 | `SPREADSHEET_ID` | `xxxxxxxxxxxxxxxxxxxx` | 準備したスプレッドシートのID（必須） |
 | `DRIVE_FOLDER_ID` | `yyyyyyyyyyyyyyyyyyyy` | 準備したジャケット保存フォルダのID（必須） |
 | `SHEET_NAME` | `MusicTracks` | シート名（任意・省略時デフォルト: `MusicTracks`） |
+| `MUSICBRAINZ_USER_AGENT` | `MusicInfoApp/1.0 ( https://... )` | MusicBrainz API 通信時のカスタム User-Agent（任意・省略時はデフォルトUAを使用） |
+| `MUSICBRAINZ_ENABLED` | `true` / `false` | MusicBrainz 検索連携の有効/無効スイッチ（任意・`'false'` または `'0'` 指定時のみ無効化、デフォルト: `true`） |
 
 ### 4. Web アプリケーションとしてデプロイ
 1. GAS エディタ右上の「デプロイ」>「新しいデプロイ」をクリックします。

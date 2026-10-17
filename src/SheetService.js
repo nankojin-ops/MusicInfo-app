@@ -112,6 +112,10 @@ class SheetService {
 
     const sheet = this.getOrCreateSheet();
     const startRow = sheet.getLastRow() + 1;
+    const dateRange = sheet.getRange(startRow, 7, rows.length, 1);
+    if (dateRange && typeof dateRange.setNumberFormat === 'function') {
+      dateRange.setNumberFormat('@');
+    }
     sheet.getRange(startRow, 1, rows.length, 8).setValues(rows);
 
     return rows.length;
@@ -222,6 +226,10 @@ class SheetService {
       // 6. データ領域を一括置換（アトミック更新）
       dataRange.clearContent();
       if (combinedRows.length > 0) {
+        const dateRange = sheet.getRange(2, 7, combinedRows.length, 1);
+        if (dateRange && typeof dateRange.setNumberFormat === 'function') {
+          dateRange.setNumberFormat('@');
+        }
         sheet.getRange(2, 1, combinedRows.length, 8).setValues(combinedRows);
       }
 

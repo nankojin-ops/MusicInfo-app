@@ -9,6 +9,8 @@ class App {
     this.hasManualSaved = false;
     this.lastManualAlbumArtist = null;
     this.lastManualAlbumName = null;
+    this.editingOriginalReleaseDate = '';
+    this.editingReleaseDateChanged = false;
   }
 
   /**
@@ -191,6 +193,16 @@ class App {
     if (btnCloseEdit) btnCloseEdit.addEventListener('click', () => this.closeEditAlbumModal());
     const btnCancelEdit = document.getElementById('btn-cancel-edit-album');
     if (btnCancelEdit) btnCancelEdit.addEventListener('click', () => this.closeEditAlbumModal());
+
+    // アルバム編集 リリース日変更検知（部分日付 YYYY / YYYY-MM の保護用）
+    const editDateInput = document.getElementById('edit-album-release-date');
+    if (editDateInput) {
+      const markDateChanged = () => {
+        this.editingReleaseDateChanged = true;
+      };
+      editDateInput.addEventListener('change', markDateChanged);
+      editDateInput.addEventListener('input', markDateChanged);
+    }
 
     // アルバム編集 アートワークURL変更時のリアルタイムプレビュー
     const editArtUrlInput = document.getElementById('edit-album-artwork-url');
@@ -632,7 +644,7 @@ class App {
   }
 
   /**
-   * iTunes 検索実行
+   * アルバム検索実行（iTunes + MusicBrainz 統合検索）
    */
   async executeItunesSearch() {
     const input = document.getElementById('itunes-search-input');
@@ -642,74 +654,147 @@ class App {
       return;
     }
 
+    const searchBtn = document.getElementById('btn-itunes-search-submit');
     const btnText = document.getElementById('itunes-search-btn-text');
     const spinner = document.getElementById('itunes-search-spinner');
+    if (searchBtn) searchBtn.disabled = true;
     if (btnText) btnText.classList.add('hidden');
     if (spinner) spinner.classList.remove('hidden');
 
     try {
-      const res = await this.api.searchItunes(keyword);
-      this.store.state.itunesSearchResults = res.albums || [];
+      const res = (typeof this.api.searchAlbums === 'function')
+        ? await this.api.searchAlbums(keyword)
+        : await this.api.searchItunes(keyword);
+      this.store.state.itunesSearchResults = (res && Array.isArray(res.albums)) ? res.albums : [];
+      this.store.state.searchSources = (res && res.sources) ? res.sources : null;
       this.renderItunesResults();
+
+      if (res && res.sources) {
+        const itStatus = res.sources.itunes;
+        const mbStatus = res.sources.musicbrainz;
+        if (mbStatus && mbStatus.ok === false && !mbStatus.skipped) {
+          Utils.showToast('MusicBrainz の検索に失敗したため iTunes の結果のみ表示しています', 'warning', 4500);
+        } else if (itStatus && itStatus.ok === false) {
+          Utils.showToast('iTunes の検索に失敗したため MusicBrainz の結果のみ表示しています', 'warning', 4500);
+        }
+      }
     } catch (err) {
-      Utils.showToast(`iTunes検索エラー: ${err.message}`, 'error');
+      Utils.showToast(`アルバム検索エラー: ${err.message}`, 'error');
     } finally {
+      if (searchBtn) searchBtn.disabled = false;
       if (btnText) btnText.classList.remove('hidden');
       if (spinner) spinner.classList.add('hidden');
     }
   }
 
   /**
-   * iTunes 検索結果描画
+   * アルバム検索結果描画（iTunes / MusicBrainz 出典バッジ・補足情報付き）
    */
   renderItunesResults() {
     const container = document.getElementById('itunes-results-container');
     if (!container) return;
 
     const list = this.store.state.itunesSearchResults;
-    if (list.length === 0) {
+    if (!Array.isArray(list) || list.length === 0) {
       container.innerHTML = '<div class="p-8 text-center text-slate-500 text-xs">該当するアルバムが見つかりませんでした</div>';
       return;
     }
 
-    const html = list.map((item) => `
-      <div class="itunes-result-item p-2.5 hover:bg-slate-800/60 cursor-pointer flex gap-2.5 items-center transition"
-           data-id="${item.collectionId}">
-        <img src="${Utils.escapeHtml(item.artworkUrl100)}" class="w-12 h-12 rounded object-cover bg-slate-800 flex-shrink-0" loading="lazy">
-        <div class="min-w-0 flex-1">
-          <h5 class="text-xs font-bold text-slate-200 truncate">${Utils.escapeHtml(item.albumName)}</h5>
-          <p class="text-[11px] text-slate-400 truncate">${Utils.escapeHtml(item.albumArtist)}</p>
-          <div class="flex items-center gap-2 text-[10px] text-slate-500 font-mono mt-0.5">
-            <span>${item.releaseDate ? item.releaseDate.substring(0, 4) : ''}</span>
-            <span>${item.trackCount}曲</span>
-            <span>${Utils.escapeHtml(item.primaryGenreName || '')}</span>
+    const defaultSvg = (typeof Utils.getDefaultArtworkSvg === 'function') ? Utils.getDefaultArtworkSvg() : '';
+
+    const html = list.map((item) => {
+      const source = item.source === 'musicbrainz' ? 'musicbrainz' : 'itunes';
+      const sourceId = String(item.sourceId !== undefined && item.sourceId !== null ? item.sourceId : (item.collectionId || ''));
+      const isMb = source === 'musicbrainz';
+      const badgeHtml = isMb
+        ? '<span class="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex-shrink-0">MusicBrainz</span>'
+        : '<span class="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex-shrink-0">iTunes</span>';
+
+      const rawArt = item.artworkUrl100 || '';
+      const imgSrc = rawArt ? Utils.escapeHtml(rawArt) : Utils.escapeHtml(defaultSvg);
+      const yearStr = item.releaseDate ? Utils.escapeHtml(String(item.releaseDate).substring(0, 10)) : '';
+      const trackCountNum = Number(item.trackCount) || 0;
+
+      const metaParts = [];
+      if (yearStr) metaParts.push(`<span>${yearStr}</span>`);
+      if (trackCountNum > 0) metaParts.push(`<span>${trackCountNum}曲</span>`);
+
+      if (isMb && item.extra && typeof item.extra === 'object') {
+        if (item.extra.format) {
+          metaParts.push(`<span class="text-slate-400">${Utils.escapeHtml(String(item.extra.format))}</span>`);
+        }
+        if (item.extra.country) {
+          metaParts.push(`<span>[${Utils.escapeHtml(String(item.extra.country))}]</span>`);
+        }
+        if (Number(item.extra.discCount) > 1) {
+          metaParts.push(`<span>${Number(item.extra.discCount)}枚組</span>`);
+        }
+        if (item.extra.label) {
+          metaParts.push(`<span class="truncate max-w-[120px]">${Utils.escapeHtml(String(item.extra.label))}</span>`);
+        }
+      } else if (item.primaryGenreName) {
+        metaParts.push(`<span>${Utils.escapeHtml(String(item.primaryGenreName))}</span>`);
+      }
+
+      const disambigHtml = (isMb && item.extra && item.extra.disambiguation)
+        ? `<p class="text-[10px] text-amber-400/80 truncate mt-0.5">${Utils.escapeHtml(String(item.extra.disambiguation))}</p>`
+        : '';
+
+      return `
+        <div class="itunes-result-item p-2.5 hover:bg-slate-800/60 cursor-pointer flex gap-2.5 items-center transition"
+             data-source="${Utils.escapeHtml(source)}"
+             data-id="${Utils.escapeHtml(sourceId)}">
+          <img src="${imgSrc}" data-artwork="${Utils.escapeHtml(rawArt)}" data-error-step="0" class="w-12 h-12 rounded object-cover bg-slate-800 flex-shrink-0" loading="lazy">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5">
+              ${badgeHtml}
+              <h5 class="text-xs font-bold text-slate-200 truncate">${Utils.escapeHtml(item.albumName)}</h5>
+            </div>
+            <p class="text-[11px] text-slate-400 truncate mt-0.5">${Utils.escapeHtml(item.albumArtist)}</p>
+            ${disambigHtml}
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500 font-mono mt-0.5">
+              ${metaParts.join('')}
+            </div>
           </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     container.innerHTML = html;
+
+    container.querySelectorAll('img[data-artwork]').forEach((img) => {
+      img.onerror = () => Utils.handleImageError(img);
+    });
 
     container.querySelectorAll('.itunes-result-item').forEach((el) => {
       el.addEventListener('click', () => {
         const id = el.getAttribute('data-id');
-        this.selectItunesAlbumForPreview(id);
+        const source = el.getAttribute('data-source') || 'itunes';
+        this.selectItunesAlbumForPreview(id, source);
       });
     });
   }
 
   /**
-   * iTunes アルバム選択・収録曲Lookupプレビュー
+   * アルバム選択・収録曲Lookupプレビュー（iTunes / MusicBrainz 出典別振り分け）
    * @param {string|number} collectionId 
+   * @param {string} [source='itunes']
    */
-  async selectItunesAlbumForPreview(collectionId) {
+  async selectItunesAlbumForPreview(collectionId, source = 'itunes') {
     const empty = document.getElementById('itunes-preview-empty');
     const content = document.getElementById('itunes-preview-content');
     const submitBtn = document.getElementById('btn-submit-itunes-batch');
+    const isMb = source === 'musicbrainz';
 
-    Utils.toggleGlobalLoading(true, 'iTunesから収録曲とディスク情報を取得中...');
+    const loadingMsg = isMb
+      ? 'MusicBrainz から収録曲とディスク情報を取得中...'
+      : 'iTunes から収録曲とディスク情報を取得中...';
+
+    Utils.toggleGlobalLoading(true, loadingMsg);
     try {
-      const res = await this.api.lookupItunesAlbum(collectionId);
+      const res = isMb
+        ? await this.api.lookupMusicBrainzRelease(collectionId)
+        : await this.api.lookupItunesAlbum(collectionId);
       const detail = res.albumDetail;
       this.store.state.selectedItunesAlbum = detail;
 
@@ -723,21 +808,37 @@ class App {
       const tbody = document.getElementById('itunes-preview-tracks-tbody');
       const summary = document.getElementById('itunes-selected-summary');
 
-      if (art) art.src = detail.artworkUrl100;
+      if (art) {
+        const rawArt = detail.artworkUrl100 || '';
+        art.setAttribute('data-artwork', rawArt);
+        art.setAttribute('data-error-step', '0');
+        art.onerror = () => Utils.handleImageError(art);
+        art.src = rawArt || ((typeof Utils.getDefaultArtworkSvg === 'function') ? Utils.getDefaultArtworkSvg() : '');
+      }
       if (alb) alb.textContent = detail.albumName;
       if (artName) artName.textContent = detail.albumArtist;
-      if (meta) meta.textContent = `${detail.releaseDate} • 全 ${detail.tracks.length} 曲`;
+      const sourceLabel = isMb ? 'MusicBrainz' : 'iTunes';
+      if (meta) meta.textContent = `[${sourceLabel}] ${detail.releaseDate || 'リリース日不明'} • 全 ${detail.tracks.length} 曲`;
       if (summary) summary.textContent = `選択中: ${detail.albumName} (${detail.tracks.length} 曲)`;
 
       if (tbody) {
-        tbody.innerHTML = detail.tracks.map((t) => `
-          <tr class="hover:bg-slate-800/40">
-            <td class="py-1 px-1.5 text-center font-mono text-indigo-400 font-bold">${t.cdNumber}</td>
-            <td class="py-1 px-1.5 text-center font-mono text-slate-500">${t.trackNumber}</td>
-            <td class="py-1 px-2 font-medium text-slate-200 truncate max-w-[150px]">${Utils.escapeHtml(t.trackName)}</td>
-            <td class="py-1 px-2 text-slate-400 truncate max-w-[100px]">${Utils.escapeHtml(t.trackArtist)}</td>
-          </tr>
-        `).join('');
+        tbody.innerHTML = detail.tracks.map((t) => {
+          const cdLabel = t.mediumFormat
+            ? `${t.cdNumber} <span class="text-[9px] text-slate-400 font-normal">(${Utils.escapeHtml(String(t.mediumFormat))})</span>`
+            : `${t.cdNumber}`;
+          return `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-1 px-1.5 text-center font-mono text-indigo-400 font-bold whitespace-nowrap">${cdLabel}</td>
+              <td class="py-1 px-1.5 text-center font-mono text-slate-500">${t.trackNumber}</td>
+              <td class="py-1 px-2 font-medium text-slate-200 truncate max-w-[150px]">${Utils.escapeHtml(t.trackName)}</td>
+              <td class="py-1 px-2 text-slate-400 truncate max-w-[100px]">${Utils.escapeHtml(t.trackArtist)}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      if (detail.truncated) {
+        Utils.showToast('収録曲数が非常に多いため、一部のトラックが省略されている可能性があります', 'warning', 5000);
       }
 
       if (submitBtn) submitBtn.disabled = false;
@@ -973,11 +1074,13 @@ class App {
       return;
     }
 
-    // 編集前の旧識別キーを保持
+    // 編集前の旧識別キーおよび元リリース日（部分日付保護用）を保持
     this.editingTargetKey = {
       originalAlbumArtist: album.albumArtist,
       originalAlbumName: album.albumName
     };
+    this.editingOriginalReleaseDate = album.releaseDate ? String(album.releaseDate).trim() : '';
+    this.editingReleaseDateChanged = false;
 
     // メタデータ入力欄に初期値を設定
     const nameInput = document.getElementById('edit-album-name');
@@ -988,7 +1091,10 @@ class App {
 
     if (nameInput) nameInput.value = album.albumName || '';
     if (artistInput) artistInput.value = album.albumArtist || '';
-    if (dateInput) dateInput.value = album.releaseDate ? Utils.formatDate(album.releaseDate) : '';
+    if (dateInput) {
+      const formattedDate = album.releaseDate ? Utils.formatDate(album.releaseDate) : '';
+      dateInput.value = /^\d{4}-\d{2}-\d{2}$/.test(formattedDate) ? formattedDate : '';
+    }
     if (artUrlInput) artUrlInput.value = album.artworkUrl || '';
     if (artPreview) {
       artPreview.onerror = () => {
@@ -1036,6 +1142,8 @@ class App {
     if (modal) modal.classList.add('hidden');
     this.editingTargetKey = null;
     this.editingTracks = [];
+    this.editingOriginalReleaseDate = '';
+    this.editingReleaseDateChanged = false;
   }
 
   /**
@@ -1271,7 +1379,10 @@ class App {
 
     const albumName = (document.getElementById('edit-album-name')?.value || '').trim();
     const albumArtist = (document.getElementById('edit-album-artist')?.value || '').trim();
-    const releaseDate = (document.getElementById('edit-album-release-date')?.value || '').trim();
+    const rawDateInputVal = (document.getElementById('edit-album-release-date')?.value || '').trim();
+    const releaseDate = (!rawDateInputVal && !this.editingReleaseDateChanged && /^\d{4}(-\d{2})?$/.test(this.editingOriginalReleaseDate || ''))
+      ? this.editingOriginalReleaseDate
+      : rawDateInputVal;
     const artworkUrl = (document.getElementById('edit-album-artwork-url')?.value || '').trim();
 
     // 1. クライアント側事前バリデーション: アルバム共通情報

@@ -1,23 +1,40 @@
+var Config = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
+
 /**
  * Apple iTunes API連携クライアントクラス
  */
 class ItunesService {
   /**
-   * キーワードからアルバム一覧を検索
-   * @param {string} term 
-   * @returns {Array<ItunesAlbumSummary>}
+   * UrlFetchApp.fetch / fetchAll 用の検索リクエストオブジェクトを生成
+   * @param {string} term
+   * @returns {{ url: string, method: string, muteHttpExceptions: boolean }|null}
    */
-  searchAlbums(term) {
-    const cleaned = (term || '').trim();
+  buildSearchRequest(term) {
+    const cleaned = String(term || '').trim();
     if (!cleaned) {
-      return [];
+      return null;
     }
 
     const url = `${Config.CONSTANTS.ITUNES.SEARCH_URL}?term=${encodeURIComponent(cleaned)}&country=${Config.CONSTANTS.ITUNES.DEFAULT_COUNTRY}&media=${Config.CONSTANTS.ITUNES.DEFAULT_MEDIA}&entity=${Config.CONSTANTS.ITUNES.ENTITY_ALBUM}&limit=${Config.CONSTANTS.ITUNES.LIMIT}`;
 
-    const response = UrlFetchApp.fetch(url, {
+    return {
+      url: url,
+      method: 'get',
       muteHttpExceptions: true
-    });
+    };
+  }
+
+  /**
+   * 検索 HTTPResponse を解析し ItunesAlbumSummary[] に変換
+   * @param {GoogleAppsScript.URL_Fetch.HTTPResponse} response
+   * @returns {Array<ItunesAlbumSummary>}
+   */
+  parseSearchResponse(response) {
+    if (!response || typeof response.getResponseCode !== 'function') {
+      const err = new Error('iTunes Search APIから有効なレスポンスが得られませんでした');
+      err.code = 'ITUNES_API_NETWORK_ERROR';
+      throw err;
+    }
 
     if (response.getResponseCode() !== 200) {
       const err = new Error(`iTunes Search APIとの通信に失敗しました (HTTP ${response.getResponseCode()})`);
@@ -25,11 +42,19 @@ class ItunesService {
       throw err;
     }
 
-    const data = JSON.parse(response.getContentText());
-    const results = data.results || [];
+    let data;
+    try {
+      data = JSON.parse(response.getContentText());
+    } catch (parseErr) {
+      const err = new Error('iTunes Search APIのレスポンスJSON解析に失敗しました');
+      err.code = 'ITUNES_API_PARSE_ERROR';
+      throw err;
+    }
+
+    const results = (data && Array.isArray(data.results)) ? data.results : [];
 
     return results
-      .filter((item) => item.wrapperType === 'collection')
+      .filter((item) => item && item.wrapperType === 'collection')
       .map((item) => ({
         collectionId: item.collectionId,
         albumName: item.collectionName || '不明なアルバム',
@@ -40,6 +65,24 @@ class ItunesService {
         trackCount: item.trackCount || 0,
         primaryGenreName: item.primaryGenreName || ''
       }));
+  }
+
+  /**
+   * キーワードからアルバム一覧を検索
+   * @param {string} term 
+   * @returns {Array<ItunesAlbumSummary>}
+   */
+  searchAlbums(term) {
+    const req = this.buildSearchRequest(term);
+    if (!req) {
+      return [];
+    }
+
+    const response = UrlFetchApp.fetch(req.url, {
+      muteHttpExceptions: true
+    });
+
+    return this.parseSearchResponse(response);
   }
 
   /**

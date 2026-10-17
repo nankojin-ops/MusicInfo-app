@@ -43,6 +43,15 @@ class ApiClient {
   }
 
   /**
+   * アルバム統合検索（iTunes + MusicBrainz）
+   * @param {string} keyword 
+   * @returns {Promise<AlbumSearchResponse>}
+   */
+  searchAlbums(keyword) {
+    return this.callGAS('apiSearchAlbums', keyword);
+  }
+
+  /**
    * iTunes アルバム検索
    * @param {string} keyword 
    * @returns {Promise<{ albums: Array<ItunesAlbumSummary> }>}
@@ -61,7 +70,16 @@ class ApiClient {
   }
 
   /**
-   * iTunes アルバム一括保存
+   * MusicBrainz リリース収録曲Lookup
+   * @param {string} mbid 
+   * @returns {Promise<{ albumDetail: AlbumDetail }>}
+   */
+  lookupMusicBrainzRelease(mbid) {
+    return this.callGAS('apiLookupMusicBrainzRelease', mbid);
+  }
+
+  /**
+   * アルバム一括保存（iTunes / MusicBrainz 共通）
    * @param {BatchSavePayload} payload 
    * @returns {Promise<{ count: number, savedAlbum: string, artworkUrl: string }>}
    */

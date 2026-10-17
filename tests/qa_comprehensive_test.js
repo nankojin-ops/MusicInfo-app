@@ -27,11 +27,25 @@ let passCount = 0;
 let failCount = 0;
 const issues = [];
 
+const pendingPromises = [];
+
 function test(name, fn) {
   try {
-    fn();
-    passCount++;
-    console.log(`  [PASS] ${name}`);
+    const ret = fn();
+    if (ret && typeof ret.then === 'function') {
+      const p = ret.then(() => {
+        passCount++;
+        console.log(`  [PASS] ${name}`);
+      }).catch((err) => {
+        failCount++;
+        console.error(`  [FAIL] ${name}: ${err.message}`);
+        issues.push({ name, error: err });
+      });
+      pendingPromises.push(p);
+    } else {
+      passCount++;
+      console.log(`  [PASS] ${name}`);
+    }
   } catch (err) {
     failCount++;
     console.error(`  [FAIL] ${name}: ${err.message}`);
@@ -334,11 +348,540 @@ test('MusicService.saveAlbumFromItunes: 正常なペイロードで登録が成�
   assert.strictEqual(res.savedAlbum, 'Test Album');
 });
 
-console.log('\n===============================================================');
-console.log(`QA検証完了: 成功 = ${passCount}, 失敗 = ${failCount}`);
-console.log('===============================================================');
+// -------------------------------------------------------------
+// セクション 5: MusicBrainzService 境界値・異常系・レート制限・リトライ検証 (AC-6, AC-7, AC-8, AC-12, AC-13)
+// -------------------------------------------------------------
+console.log('\n>>> [5] MusicBrainzService 境界値・異常系・レート制限・リトライ検証');
 
-if (issues.length > 0) {
-  console.log('\n発見された課題一覧:');
-  issues.forEach(i => console.log(`- ${i.name}: ${i.error.message}`));
+const Config = require('../src/Config.js');
+const ItunesService = require('../src/ItunesService.js');
+const MusicBrainzService = require('../src/MusicBrainzService.js');
+const Code = require('../src/Code.js');
+
+const qaConfig = new Config();
+const qaMbService = new MusicBrainzService(qaConfig);
+const SAMPLE_MBID = 'a1b2c3d4-e5f6-4789-abcd-ef0123456789';
+
+test('MusicBrainzService.isValidMbid: 境界値・非文字列・前後空白・不正文字の厳密判定 (AC-8, NFR-SEC-002)', () => {
+  assert.strictEqual(qaMbService.isValidMbid(SAMPLE_MBID), true);
+  assert.strictEqual(qaMbService.isValidMbid(`  ${SAMPLE_MBID.toUpperCase()}  `), true);
+  assert.strictEqual(qaMbService.isValidMbid('a1b2c3d4-e5f6-4789-abcd-ef012345678'), false); // 1文字短い
+  assert.strictEqual(qaMbService.isValidMbid('a1b2c3d4-e5f6-4789-abcd-ef01234567890'), false); // 1文字長い
+  assert.strictEqual(qaMbService.isValidMbid('a1b2c3d4_e5f6_4789_abcd_ef0123456789'), false); // アンダースコア
+  assert.strictEqual(qaMbService.isValidMbid(null), false);
+  assert.strictEqual(qaMbService.isValidMbid(undefined), false);
+  assert.strictEqual(qaMbService.isValidMbid(12345), false);
+  assert.strictEqual(qaMbService.isValidMbid({}), false);
+});
+
+test('MusicBrainzService.sanitizeSearchQuery: 制御文字・空白のみ・非文字列への耐性 (NFR-SEC-003)', () => {
+  assert.strictEqual(qaMbService.sanitizeSearchQuery(null), '');
+  assert.strictEqual(qaMbService.sanitizeSearchQuery(undefined), '');
+  assert.strictEqual(qaMbService.sanitizeSearchQuery('   \t\r\n\x00\x1F\x7F   '), '');
+  assert.strictEqual(qaMbService.buildSearchRequest('   \x00   '), null);
+  const sanitized = qaMbService.sanitizeSearchQuery('King Gnu: "THE GREATEST UNKNOWN" [2023] +1');
+  assert.strictEqual(sanitized.includes('\\:'), true);
+  assert.strictEqual(sanitized.includes('\\"'), true);
+  assert.strictEqual(sanitized.includes('\\['), true);
+  assert.strictEqual(sanitized.includes('\\+'), true);
+});
+
+test('MusicBrainzService.lookupRelease: HTTP 404 / 500 / 503(リトライ成功・再失敗) / 不正JSON のエラーステータス検証 (AC-12)', () => {
+  // 1) HTTP 404 -> ALBUM_NOT_FOUND
+  global.UrlFetchApp = {
+    fetch: () => ({ getResponseCode: () => 404, getContentText: () => 'Not Found' })
+  };
+  assert.throws(
+    () => qaMbService.lookupRelease(SAMPLE_MBID),
+    (err) => err.code === 'ALBUM_NOT_FOUND'
+  );
+
+  // 2) HTTP 500 -> MUSICBRAINZ_API_NETWORK_ERROR
+  global.UrlFetchApp = {
+    fetch: () => ({ getResponseCode: () => 500, getContentText: () => 'Internal Error' })
+  };
+  assert.throws(
+    () => qaMbService.lookupRelease(SAMPLE_MBID),
+    (err) => err.code === 'MUSICBRAINZ_API_NETWORK_ERROR'
+  );
+
+  // 3) HTTP 503 -> 1回リトライして2回目200で成功
+  let lookupAttempts = 0;
+  global.UrlFetchApp = {
+    fetch: () => {
+      lookupAttempts++;
+      if (lookupAttempts === 1) {
+        return { getResponseCode: () => 503, getContentText: () => 'Rate Limited' };
+      }
+      return {
+        getResponseCode: () => 200,
+        getContentText: () => JSON.stringify({
+          id: SAMPLE_MBID,
+          title: 'Recovered Album',
+          'artist-credit': [{ name: 'Artist' }],
+          media: [{ position: 1, format: 'CD', tracks: [{ position: 1, title: 'Track 1' }] }]
+        })
+      };
+    }
+  };
+  const recovered = qaMbService.lookupRelease(SAMPLE_MBID);
+  assert.strictEqual(lookupAttempts, 2);
+  assert.strictEqual(recovered.albumName, 'Recovered Album');
+
+  // 4) HTTP 503 -> 2回連続503で MUSICBRAINZ_RATE_LIMITED
+  let lookupFailAttempts = 0;
+  global.UrlFetchApp = {
+    fetch: () => {
+      lookupFailAttempts++;
+      return { getResponseCode: () => 503, getContentText: () => 'Rate Limited' };
+    }
+  };
+  assert.throws(
+    () => qaMbService.lookupRelease(SAMPLE_MBID),
+    (err) => err.code === 'MUSICBRAINZ_RATE_LIMITED'
+  );
+  assert.strictEqual(lookupFailAttempts, 2);
+
+  // 5) 不正JSON -> MUSICBRAINZ_API_PARSE_ERROR
+  global.UrlFetchApp = {
+    fetch: () => ({ getResponseCode: () => 200, getContentText: () => '{broken_json' })
+  };
+  assert.throws(
+    () => qaMbService.lookupRelease(SAMPLE_MBID),
+    (err) => err.code === 'MUSICBRAINZ_API_PARSE_ERROR'
+  );
+
+  delete global.UrlFetchApp;
+});
+
+test('MusicBrainzService.lookupRelease: recordingフォールバック・truncated検知・position欠損補完の検証 (AC-6, U-1)', () => {
+  global.UrlFetchApp = {
+    fetch: () => ({
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({
+        id: SAMPLE_MBID,
+        title: '', // 空タイトル -> 不明なアルバム
+        'artist-credit': [], // 空クレジット -> 不明なアーティスト
+        media: [
+          {
+            position: null, // 欠損 -> 1
+            format: 'Blu-ray',
+            'track-count': 50, // 実配列(2件)より大きい -> truncated: true
+            tracks: [
+              {
+                position: 'invalid', // 非数値 -> 1
+                number: 'BD-1',
+                title: '', // 空 -> recording.title へフォールバック
+                recording: {
+                  title: 'Recording Fallback Title',
+                  'artist-credit': [{ name: 'Recording Artist' }]
+                }
+              },
+              {
+                position: 2,
+                title: '', // recordingも空 -> Track 2 へフォールバック
+                recording: {}
+              }
+            ]
+          }
+        ]
+      })
+    })
+  };
+
+  const detail = qaMbService.lookupRelease(SAMPLE_MBID);
+  assert.strictEqual(detail.albumName, '不明なアルバム');
+  assert.strictEqual(detail.albumArtist, '不明なアーティスト');
+  assert.strictEqual(detail.truncated, true);
+  assert.strictEqual(detail.expectedTrackCount, 50);
+  assert.strictEqual(detail.tracks.length, 2);
+  assert.strictEqual(detail.tracks[0].cdNumber, 1);
+  assert.strictEqual(detail.tracks[0].trackNumber, 1);
+  assert.strictEqual(detail.tracks[0].trackName, 'Recording Fallback Title');
+  assert.strictEqual(detail.tracks[0].trackArtist, 'Recording Artist');
+  assert.strictEqual(detail.tracks[0].mediumFormat, 'Blu-ray');
+  assert.strictEqual(detail.tracks[1].trackName, 'Track 2');
+  assert.strictEqual(detail.tracks[1].trackArtist, '不明なアーティスト');
+
+  delete global.UrlFetchApp;
+});
+
+// -------------------------------------------------------------
+// セクション 6: MusicService.searchAlbums 並列取得 (fetchAll) & 重複判定コーナーケース検証 (AC-1〜AC-5)
+// -------------------------------------------------------------
+console.log('\n>>> [6] MusicService.searchAlbums 並列取得 (fetchAll) & 重複判定コーナーケース検証');
+
+test('MusicService.searchAlbums: UrlFetchApp.fetchAll による並列取得とMB側503時の単発リトライ成功検証', () => {
+  let fetchAllCalled = false;
+  let retryFetchCalled = false;
+
+  global.UrlFetchApp = {
+    fetchAll: (reqs) => {
+      fetchAllCalled = true;
+      assert.strictEqual(reqs.length, 2);
+      return [
+        // [0] iTunes 200 OK
+        {
+          getResponseCode: () => 200,
+          getContentText: () => JSON.stringify({
+            results: [{
+              wrapperType: 'collection',
+              collectionId: 999,
+              collectionName: 'Parallel Album',
+              artistName: 'Parallel Artist',
+              releaseDate: '2024-04-01T00:00:00Z',
+              trackCount: 10
+            }]
+          })
+        },
+        // [1] MusicBrainz 初回 503
+        {
+          getResponseCode: () => 503,
+          getContentText: () => 'Service Unavailable'
+        }
+      ];
+    },
+    fetch: (url, opts) => {
+      retryFetchCalled = true;
+      return {
+        getResponseCode: () => 200,
+        getContentText: () => JSON.stringify({
+          releases: [{
+            id: SAMPLE_MBID,
+            score: 90,
+            title: 'MB Recovered Album',
+            date: '2024-04',
+            'track-count': 12,
+            'artist-credit': [{ name: 'Parallel Artist' }]
+          }]
+        })
+      };
+    }
+  };
+
+  const ms = new MusicService(qaConfig, {}, driveService, new ItunesService(), new MusicBrainzService(qaConfig));
+  const res = ms.searchAlbums('Parallel');
+
+  assert.strictEqual(fetchAllCalled, true);
+  assert.strictEqual(retryFetchCalled, true);
+  assert.strictEqual(res.sources.itunes.ok, true);
+  assert.strictEqual(res.sources.musicbrainz.ok, true);
+  assert.strictEqual(res.albums.length, 2);
+  assert.strictEqual(res.albums[0].source, 'itunes');
+  assert.strictEqual(res.albums[1].source, 'musicbrainz');
+
+  delete global.UrlFetchApp;
+});
+
+test('MusicService.searchAlbums: UrlFetchApp.fetchAll 自体が例外を投げた場合に個別呼び出しへフォールバックすること', () => {
+  let individualFetchCount = 0;
+  global.UrlFetchApp = {
+    fetchAll: () => {
+      throw new Error('fetchAll unsupported or failed');
+    },
+    fetch: (url) => {
+      individualFetchCount++;
+      if (url.includes('itunes.apple.com')) {
+        return {
+          getResponseCode: () => 200,
+          getContentText: () => JSON.stringify({
+            results: [{
+              wrapperType: 'collection',
+              collectionId: 777,
+              collectionName: 'Fallback Album',
+              artistName: 'Fallback Artist',
+              releaseDate: '2022-01-01',
+              trackCount: 8
+            }]
+          })
+        };
+      }
+      return {
+        getResponseCode: () => 200,
+        getContentText: () => JSON.stringify({ releases: [] })
+      };
+    }
+  };
+
+  const ms = new MusicService(qaConfig, {}, driveService, new ItunesService(), new MusicBrainzService(qaConfig));
+  const res = ms.searchAlbums('Fallback');
+
+  assert.strictEqual(individualFetchCount, 2);
+  assert.strictEqual(res.albums.length, 1);
+  assert.strictEqual(res.albums[0].albumName, 'Fallback Album');
+
+  delete global.UrlFetchApp;
+});
+
+test('MusicService.mergeAlbumSearchResults: 記号のみタイトル・MB内複数版保持・trackCount<=0境界の検証 (AC-3)', () => {
+  const ms = new MusicService(qaConfig, {}, driveService, new ItunesService(), new MusicBrainzService(qaConfig));
+
+  // 1) 同じ記号タイトル ("+" と "+") かつ他3条件一致なら重複排除される
+  const sameSymbol = ms.mergeAlbumSearchResults(
+    [{ collectionId: 1, albumName: '+', albumArtist: 'Ed Sheeran', releaseDate: '2011-09-09', trackCount: 12 }],
+    [{ sourceId: SAMPLE_MBID, albumName: '＋', albumArtist: 'Ed Sheeran', releaseDate: '2011', trackCount: 12, extra: { score: 100 } }]
+  );
+  assert.strictEqual(sameSymbol.length, 1);
+  assert.strictEqual(sameSymbol[0].source, 'itunes');
+
+  // 2) MB結果同士の版違い（JP盤とUS盤）はiTunesに同一がなければ両方とも保持される (ADR-004)
+  const mbEditions = ms.mergeAlbumSearchResults(
+    [],
+    [
+      { sourceId: '11111111-1111-1111-1111-111111111111', albumName: 'Same MB Album', albumArtist: 'Artist', releaseDate: '2021', trackCount: 10, extra: { country: 'JP', score: 100 } },
+      { sourceId: '22222222-2222-2222-2222-222222222222', albumName: 'Same MB Album', albumArtist: 'Artist', releaseDate: '2021', trackCount: 10, extra: { country: 'US', score: 100 } }
+    ]
+  );
+  assert.strictEqual(mbEditions.length, 2);
+
+  // 3) trackCount が 0 の場合はタイトル・アーティスト・年が一致しても誤統合しない
+  const zeroTracks = ms.mergeAlbumSearchResults(
+    [{ collectionId: 2, albumName: 'Zero Track Album', albumArtist: 'Artist', releaseDate: '2021-01-01', trackCount: 0 }],
+    [{ sourceId: SAMPLE_MBID, albumName: 'Zero Track Album', albumArtist: 'Artist', releaseDate: '2021-01-01', trackCount: 0, extra: { score: 90 } }]
+  );
+  assert.strictEqual(zeroTracks.length, 2);
+});
+
+// -------------------------------------------------------------
+// セクション 7: フロントエンド App 動的統合テスト（統合検索・警告トースト・MBプレビュー・部分日付保護）
+// -------------------------------------------------------------
+console.log('\n>>> [7] フロントエンド App 動的統合テスト（検索・プレビュー・部分日付編集保護）');
+
+function createQaDomEnv() {
+  const elements = {};
+  const toasts = [];
+  const createEl = (id, props = {}) => {
+    const classes = new Set(props.classes || []);
+    const attrs = { ...(props.attrs || {}) };
+    const el = {
+      id,
+      value: props.value || '',
+      textContent: props.textContent || '',
+      innerHTML: props.innerHTML || '',
+      disabled: Boolean(props.disabled),
+      src: props.src || '',
+      onerror: null,
+      classList: {
+        add: (...cs) => cs.forEach(c => classes.add(c)),
+        remove: (...cs) => cs.forEach(c => classes.delete(c)),
+        toggle: (c, force) => {
+          if (force === undefined) {
+            if (classes.has(c)) classes.delete(c); else classes.add(c);
+          } else if (force) classes.add(c); else classes.delete(c);
+        },
+        contains: (c) => classes.has(c)
+      },
+      getAttribute: (k) => (k in attrs ? attrs[k] : null),
+      setAttribute: (k, v) => { attrs[k] = String(v); },
+      removeAttribute: (k) => { delete attrs[k]; },
+      addEventListener: (ev, fn) => {
+        el._listeners = el._listeners || {};
+        el._listeners[ev] = el._listeners[ev] || [];
+        el._listeners[ev].push(fn);
+      },
+      trigger: (ev, eventObj = {}) => {
+        if (el._listeners && el._listeners[ev]) {
+          el._listeners[ev].forEach(fn => fn({ target: el, preventDefault: () => {}, ...eventObj }));
+        }
+      },
+      focus: () => {},
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      ...props
+    };
+    elements[id] = el;
+    return el;
+  };
+
+  [
+    'itunes-search-input',
+    'btn-itunes-search-submit',
+    'itunes-search-btn-text',
+    'itunes-search-spinner',
+    'itunes-results-container',
+    'itunes-preview-empty',
+    'itunes-preview-content',
+    'btn-submit-itunes-batch',
+    'itunes-preview-artwork',
+    'itunes-preview-album',
+    'itunes-preview-artist',
+    'itunes-preview-meta',
+    'itunes-preview-tracks-tbody',
+    'itunes-selected-summary',
+    'edit-album-name',
+    'edit-album-artist',
+    'edit-album-release-date',
+    'edit-album-artwork-url',
+    'edit-album-art-preview',
+    'edit-tracks-table-body',
+    'edit-tracks-mobile-container',
+    'edit-tracks-count-badge',
+    'edit-tracks-empty-warning',
+    'modal-edit-album',
+    'btn-submit-edit-album',
+    'btn-mobile-submit-edit-album'
+  ].forEach(id => createEl(id));
+
+  const storeContent = fs.readFileSync(path.join(__dirname, '../src/ScriptsState.html'), 'utf8');
+  const storeJs = (storeContent.match(scriptTagRegex) || [])[1];
+  const appContent = fs.readFileSync(path.join(__dirname, '../src/ScriptsApp.html'), 'utf8');
+  const appJs = (appContent.match(scriptTagRegex) || [])[1];
+
+  const sandbox = {
+    window: { innerWidth: 1024, addEventListener: () => {} },
+    document: {
+      getElementById: (id) => elements[id] || null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    },
+    Utils: {
+      escapeHtml: (s) => Utils.escapeHtml(s),
+      formatDate: (d) => Utils.formatDate(d),
+      debounce: (fn) => fn,
+      resolveArtworkUrl: (u, sz) => Utils.resolveArtworkUrl(u, sz),
+      extractDriveFileId: (u) => Utils.extractDriveFileId(u),
+      getDefaultArtworkSvg: () => Utils.getDefaultArtworkSvg(),
+      handleImageError: (el, u) => Utils.handleImageError(el, u),
+      showToast: (msg, type) => { toasts.push({ msg, type }); },
+      toggleGlobalLoading: () => {}
+    },
+    ApiClient: function() {},
+    console
+  };
+
+  vm.createContext(sandbox);
+  vm.runInContext(storeJs + '\nthis.Store = Store;', sandbox);
+  vm.runInContext(appJs + '\nthis.App = App;', sandbox);
+
+  return { App: sandbox.App, elements, toasts };
 }
+
+test('App.executeItunesSearch & selectItunesAlbumForPreview: 片側失敗警告トーストと出典別Lookup振り分けの動的検証 (AC-4, AC-6)', async () => {
+  const { App, elements, toasts } = createQaDomEnv();
+  const app = new App();
+
+  elements['itunes-search-input'].value = 'Official髭男dism';
+  app.api.searchAlbums = async () => ({
+    albums: [
+      {
+        source: 'musicbrainz',
+        sourceId: SAMPLE_MBID,
+        albumName: 'Editorial <script>alert(1)</script>',
+        albumArtist: 'Official髭男dism',
+        releaseDate: '2021-08',
+        trackCount: 14,
+        artworkUrl100: `https://coverartarchive.org/release/${SAMPLE_MBID}/front-250`,
+        extra: { format: 'CD + DVD', country: 'JP', discCount: 2, disambiguation: '初回盤<img onerror=alert(1)>' }
+      }
+    ],
+    sources: {
+      itunes: { ok: false, count: 0, error: 'iTunes Timeout' },
+      musicbrainz: { ok: true, count: 1 }
+    }
+  });
+
+  await app.executeItunesSearch();
+
+  // iTunes失敗・MB成功時の警告トースト確認
+  assert.strictEqual(toasts.some(t => t.type === 'warning' && t.msg.includes('iTunes の検索に失敗したため MusicBrainz の結果のみ表示しています')), true);
+  // 検索ボタンが操作可能に戻っていること
+  assert.strictEqual(elements['btn-itunes-search-submit'].disabled, false);
+  // 描画HTMLに生の <script> や <img onerror が含まれずエスケープされていること (AC-9)
+  const renderedHtml = elements['itunes-results-container'].innerHTML;
+  assert.strictEqual(renderedHtml.includes('<script>'), false);
+  assert.strictEqual(renderedHtml.includes('&lt;script&gt;'), true);
+  assert.strictEqual(renderedHtml.includes('MusicBrainz'), true);
+  assert.strictEqual(renderedHtml.includes('2枚組'), true);
+
+  // MB アルバム選択時の lookupMusicBrainzRelease 振り分けと truncated 警告検証
+  let calledMbid = null;
+  app.api.lookupMusicBrainzRelease = async (mbid) => {
+    calledMbid = mbid;
+    return {
+      albumDetail: {
+        source: 'musicbrainz',
+        sourceId: mbid,
+        albumName: 'Editorial',
+        albumArtist: 'Official髭男dism',
+        releaseDate: '2021-08',
+        artworkUrl100: '',
+        artworkUrl500: '',
+        trackCount: 2,
+        truncated: true,
+        tracks: [
+          { cdNumber: 1, trackNumber: 1, trackName: 'Editorial', trackArtist: 'Official髭男dism', mediumFormat: 'CD' },
+          { cdNumber: 2, trackNumber: 1, trackName: 'Live Intro', trackArtist: 'Official髭男dism', mediumFormat: 'DVD' }
+        ]
+      }
+    };
+  };
+
+  await app.selectItunesAlbumForPreview(SAMPLE_MBID, 'musicbrainz');
+  assert.strictEqual(calledMbid, SAMPLE_MBID);
+  assert.strictEqual(elements['itunes-preview-meta'].textContent.includes('[MusicBrainz] 2021-08'), true);
+  assert.strictEqual(elements['itunes-preview-tracks-tbody'].innerHTML.includes('(CD)'), true);
+  assert.strictEqual(elements['itunes-preview-tracks-tbody'].innerHTML.includes('(DVD)'), true);
+  assert.strictEqual(toasts.some(t => t.type === 'warning' && t.msg.includes('一部のトラックが省略されている')), true);
+});
+
+test('App.openEditAlbumModal & handleSaveAlbumEdit: MB部分日付 (YYYY / YYYY-MM) の未変更時保持と変更時更新の検証 (Q-5)', async () => {
+  const { App, elements } = createQaDomEnv();
+  const app = new App();
+  app.bindEvents();
+
+  const partialDateAlbum = {
+    albumName: 'Partial Date Album',
+    albumArtist: 'Test Artist',
+    releaseDate: '2021-08',
+    artworkUrl: '',
+    totalTracks: 1,
+    discs: {
+      1: {
+        cdNumber: 1,
+        tracks: [{ cdNumber: 1, trackNumber: 1, trackName: 'Song 1', trackArtist: 'Test Artist' }]
+      }
+    }
+  };
+
+  // ケース1: 日付欄を触らずに保存した場合 -> 元の部分日付 '2021-08' が維持されること
+  app.openEditAlbumModal(partialDateAlbum);
+  assert.strictEqual(elements['edit-album-release-date'].value, ''); // <input type="date"> には入らないため空文字
+
+  let savedEditPayload = null;
+  app.api.updateAlbumBatch = async (payload) => {
+    savedEditPayload = payload;
+    return { updatedRowCount: 1 };
+  };
+
+  await app.handleSaveAlbumEdit();
+  assert.strictEqual(savedEditPayload.album.releaseDate, '2021-08');
+
+  // ケース2: ユーザーが日付欄を意図的に変更した場合 -> 新しい日付が送信されること
+  app.openEditAlbumModal(partialDateAlbum);
+  elements['edit-album-release-date'].value = '2021-08-18';
+  elements['edit-album-release-date'].trigger('change');
+
+  await app.handleSaveAlbumEdit();
+  assert.strictEqual(savedEditPayload.album.releaseDate, '2021-08-18');
+
+  // ケース3: ユーザーが日付欄を一度操作して空にクリアした場合 -> 空文字 '' が送信されること
+  app.openEditAlbumModal(partialDateAlbum);
+  elements['edit-album-release-date'].value = '';
+  elements['edit-album-release-date'].trigger('input');
+
+  await app.handleSaveAlbumEdit();
+  assert.strictEqual(savedEditPayload.album.releaseDate, '');
+});
+
+Promise.all(pendingPromises).then(() => {
+  console.log('\n===============================================================');
+  console.log(`QA検証完了: 成功 = ${passCount}, 失敗 = ${failCount}`);
+  console.log('===============================================================');
+
+  if (issues.length > 0) {
+    console.log('\n発見された課題一覧:');
+    issues.forEach(i => console.log(`- ${i.name}: ${i.error.message}`));
+    process.exit(1);
+  }
+});
+
