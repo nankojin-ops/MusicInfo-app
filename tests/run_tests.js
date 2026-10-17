@@ -228,6 +228,30 @@ assert(searchResults.length === 1 && searchResults[0].trackName === '天体観�
 const searchByCd = store.searchAcrossAllTracks('2');
 assert(searchByCd.length === 1 && searchByCd[0].cdNumber === 2, 'CD番号(2)で横断検索');
 
+// 6.1. アルバム一覧のリリース日昇順ソートテスト (Store.getAlbumsForSelectedArtist)
+console.log('\n[6.1] Store.getAlbumsForSelectedArtist (リリース日昇順ソート) のテスト');
+const multiAlbumTracks = [
+  { cdNumber: 1, albumArtist: 'アーティストA', albumName: '最新アルバムZ', releaseDate: '2023-01-15', trackNumber: 1, trackName: 'Song Z' },
+  { cdNumber: 1, albumArtist: 'アーティストA', albumName: '過去アルバムA', releaseDate: '2010-05-20', trackNumber: 1, trackName: 'Song A' },
+  { cdNumber: 1, albumArtist: 'アーティストA', albumName: '同日アルバム2', releaseDate: '2020-10-01', trackNumber: 1, trackName: 'Song 2' },
+  { cdNumber: 1, albumArtist: 'アーティストA', albumName: '同日アルバム1', releaseDate: '2020-10-01', trackNumber: 1, trackName: 'Song 1' },
+  { cdNumber: 1, albumArtist: 'アーティストA', albumName: '日付未設定アルバムB', releaseDate: '', trackNumber: 1, trackName: 'Song Unknown B' },
+  { cdNumber: 1, albumArtist: 'アーティストA', albumName: '日付未設定アルバムA', releaseDate: '', trackNumber: 1, trackName: 'Song Unknown A' }
+];
+
+const testSortStore = new Store();
+testSortStore.setTracks(multiAlbumTracks);
+testSortStore.state.selectedArtist = 'アーティストA';
+
+const sortedAlbums = testSortStore.getAlbumsForSelectedArtist();
+assert(sortedAlbums.length === 6, '全6件のアルバムが取得できること');
+assert(sortedAlbums[0].albumName === '過去アルバムA', '最古アルバム(2010)が先頭');
+assert(sortedAlbums[1].albumName === '同日アルバム1', '同日(2020)で名前昇順の「同日アルバム1」が2番目');
+assert(sortedAlbums[2].albumName === '同日アルバム2', '同日(2020)で名前昇順の「同日アルバム2」が3番目');
+assert(sortedAlbums[3].albumName === '最新アルバムZ', '最新アルバム(2023)が4番目');
+assert(sortedAlbums[4].albumName === '日付未設定アルバムA', '日付未設定同士で名前昇順の「日付未設定アルバムA」が5番目');
+assert(sortedAlbums[5].albumName === '日付未設定アルバムB', '日付未設定同士で名前昇順の「日付未設定アルバムB」が6番目');
+
 // 6.2. アルバム編集に関する単体テスト (Store.updateAlbumInCatalog)
 console.log('\n[6.2] Store.updateAlbumInCatalog (差分同期＆改名自動追従) のテスト');
 store.state.selectedArtist = 'Official髭男dism';

@@ -1139,7 +1139,15 @@ class Store {
     const albumsObj = this.state.musicCatalog[this.state.selectedArtist].albums;
     return Object.values(albumsObj).sort((a, b) => {
       
-      if (a.releaseDate && b.releaseDate) return b.releaseDate.localeCompare(a.releaseDate);
+      if (a.releaseDate && b.releaseDate) {
+        const dateDiff = a.releaseDate.localeCompare(b.releaseDate);
+        if (dateDiff !== 0) return dateDiff;
+      } else if (a.releaseDate && !b.releaseDate) {
+        return -1; 
+      } else if (!a.releaseDate && b.releaseDate) {
+        return 1; 
+      }
+      
       return a.albumName.localeCompare(b.albumName, 'ja');
     });
   }

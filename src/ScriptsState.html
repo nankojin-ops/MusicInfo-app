@@ -134,8 +134,16 @@ class Store {
     }
     const albumsObj = this.state.musicCatalog[this.state.selectedArtist].albums;
     return Object.values(albumsObj).sort((a, b) => {
-      // リリース日降順、無ければアルバム名昇順
-      if (a.releaseDate && b.releaseDate) return b.releaseDate.localeCompare(a.releaseDate);
+      // 1. リリース日が存在する同士の昇順比較
+      if (a.releaseDate && b.releaseDate) {
+        const dateDiff = a.releaseDate.localeCompare(b.releaseDate);
+        if (dateDiff !== 0) return dateDiff;
+      } else if (a.releaseDate && !b.releaseDate) {
+        return -1; // 日付ありを前に
+      } else if (!a.releaseDate && b.releaseDate) {
+        return 1; // 日付なしを後に
+      }
+      // 2. 日付が同一、または両方未設定の場合はアルバム名昇順
       return a.albumName.localeCompare(b.albumName, 'ja');
     });
   }
