@@ -28,6 +28,7 @@ console.log('  RED TEAM ATTACK & ROBUSTNESS TEST SUITE');
 console.log('  Target: MusicInfo-app (GAS + Frontend + Components)');
 console.log('================================================================\n');
 
+(async () => {
 // -----------------------------------------------------------------------------
 // [TEST SUITE 1] 境界値・異常値・クラッシュ注入テスト
 // -----------------------------------------------------------------------------
@@ -437,6 +438,200 @@ recordResult('submitManualTrack 二重送信ガード (isSaving)', hasIsSavingCh
 const hasManualButtonDisable = appContent.includes('btn-submit-manual-track') &&
                                appContent.includes('disabled = true');
 recordResult('submitManualTrack 送信ボタンの物理無効化 (disabled = true)', hasManualButtonDisable, '手動登録送信時にボタンが disabled されない（連打の視覚的抑止不足）', 'LOW');
+
+// 手動登録パフォーマンス改善: 登録毎ではなくモーダル閉時に読み直す設計の検証
+const submitManualFuncMatch = appContent.match(/async\s+submitManualTrack\s*\(\)\s*\{([\s\S]*?)\n\s*async\s+openImageModal/);
+const submitManualBody = submitManualFuncMatch ? submitManualFuncMatch[1] : '';
+const doesNotReloadInSubmit = !submitManualBody.includes('loadInitialData()');
+recordResult('submitManualTrack 登録時の全データ再読み込み抑止 (パフォーマンス検証)', doesNotReloadInSubmit, '手動登録ボタン押下時に loadInitialData() が実行されており、連続登録時のパフォーマンスが低下する恐れがあります', 'MEDIUM');
+
+const closeManualFuncMatch = appContent.match(/async\s+closeManualModal\s*\([^)]*\)\s*\{([\s\S]*?)\n\s*\/\*\*/);
+const closeManualBody = closeManualFuncMatch ? closeManualFuncMatch[1] : '';
+const reloadsOnCloseIfSaved = closeManualBody.includes('this.hasManualSaved') && closeManualBody.includes('loadInitialData()');
+recordResult('closeManualModal モーダル閉時の全データ遅延再読み込み検証', reloadsOnCloseIfSaved, '手動登録完了後にモーダルを閉じる際、最新データへの同期 (loadInitialData) が実行されていません', 'MEDIUM');
+
+// 3.4 手動登録フロー動的実行シミュレーション検証 (BUG-001 / BUG-002 / ISSUE-003 / ISSUE-004)
+console.log('\n>>> [3.4] 手動登録フロー動的実行シミュレーション検証 (App.submitManualTrack & closeManualModal)');
+
+function createMockElement(id, initialProps = {}) {
+  const classes = new Set(initialProps.classes || []);
+  return {
+    id,
+    value: initialProps.value || '',
+    checked: initialProps.checked || false,
+    disabled: initialProps.disabled || false,
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      toggle: (c, force) => {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains: (c) => classes.has(c)
+    },
+    focus: () => {},
+    checkValidity: () => true,
+    reportValidity: () => true,
+    addEventListener: () => {},
+    ...initialProps
+  };
+}
+
+const mockElements = {
+  'modal-manual': createMockElement('modal-manual'),
+  'form-manual-track': createMockElement('form-manual-track'),
+  'manual-cd-number': createMockElement('manual-cd-number', { value: '1' }),
+  'manual-album-artist': createMockElement('manual-album-artist', { value: 'Official髭男dism' }),
+  'manual-album-name': createMockElement('manual-album-name', { value: 'Editorial' }),
+  'manual-track-artist': createMockElement('manual-track-artist', { value: 'Official髭男dism' }),
+  'manual-track-number': createMockElement('manual-track-number', { value: '1' }),
+  'manual-track-name': createMockElement('manual-track-name', { value: 'Cry Baby' }),
+  'manual-release-date': createMockElement('manual-release-date', { value: '2021-08-18' }),
+  'manual-artwork-url': createMockElement('manual-artwork-url', { value: 'https://example.com/art.jpg' }),
+  'manual-continuous-check': createMockElement('manual-continuous-check', { checked: false }),
+  'manual-submit-btn-text': createMockElement('manual-submit-btn-text'),
+  'manual-submit-spinner': createMockElement('manual-submit-spinner', { classes: ['hidden'] }),
+  'btn-submit-manual-track': createMockElement('btn-submit-manual-track'),
+  'btn-close-manual-modal': createMockElement('btn-close-manual-modal'),
+  'btn-cancel-manual-modal': createMockElement('btn-cancel-manual-modal')
+};
+
+const mockDoc = {
+  getElementById: (id) => mockElements[id] || null,
+  addEventListener: () => {}
+};
+
+const appJs = (appContent.match(scriptTagRegex) || [])[1];
+const appSandbox = {
+  window: { innerWidth: 1024, addEventListener: () => {} },
+  document: mockDoc,
+  Store: function() {
+    this.state = {
+      isSaving: false,
+      selectedArtist: null,
+      selectedAlbum: null,
+      allTracks: [],
+      artistList: ['Official髭男dism']
+    };
+    this.setTracks = () => {};
+    this.getAlbumsForSelectedArtist = () => [];
+  },
+  ApiClient: function() {
+    this.saveTrackSingle = async () => ({ success: true });
+    this.getAllData = async () => ({ tracks: [] });
+  },
+  Utils: {
+    showToast: () => {},
+    toggleGlobalLoading: () => {},
+    debounce: (fn) => fn,
+    escapeHtml: (s) => s,
+    formatDate: (d) => d
+  },
+  console: console
+};
+vm.createContext(appSandbox);
+vm.runInContext(appJs, appSandbox);
+const AppClass = appSandbox.App || appSandbox.window.App;
+
+// 3.4.1 単発登録 (continuous = false) 動的検証 (BUG-001, BUG-002, ISSUE-003)
+const appInstance1 = new AppClass();
+mockElements['modal-manual'].classList.remove('hidden');
+mockElements['manual-continuous-check'].checked = false;
+let disabledDuringSave = false;
+let loadInitialCalled1 = false;
+let selectedArtistBeforeLoad = null;
+let selectedAlbumBeforeLoad = null;
+
+appInstance1.api.saveTrackSingle = async () => {
+  if (mockElements['btn-submit-manual-track'].disabled &&
+      mockElements['btn-close-manual-modal'].disabled &&
+      mockElements['btn-cancel-manual-modal'].disabled &&
+      appInstance1.store.state.isSaving) {
+    disabledDuringSave = true;
+  }
+  return { success: true };
+};
+
+appInstance1.loadInitialData = async () => {
+  loadInitialCalled1 = true;
+  selectedArtistBeforeLoad = appInstance1.store.state.selectedArtist;
+  selectedAlbumBeforeLoad = appInstance1.store.state.selectedAlbum;
+};
+
+await appInstance1.submitManualTrack();
+
+recordResult(
+  '動的検証: [BUG-001] 単発登録完了時にモーダルが閉じ(hidden付与)、loadInitialDataが実行されること',
+  mockElements['modal-manual'].classList.contains('hidden') && loadInitialCalled1,
+  '単発登録完了後にモーダルが閉じないか、loadInitialDataが呼び出されていません'
+);
+
+recordResult(
+  '動的検証: [BUG-002] 保存通信中にボタンが無効化され、完了後に活性復元されること',
+  disabledDuringSave &&
+  !mockElements['btn-submit-manual-track'].disabled &&
+  !mockElements['btn-close-manual-modal'].disabled &&
+  !mockElements['btn-cancel-manual-modal'].disabled &&
+  !appInstance1.store.state.isSaving,
+  '保存中のボタン無効化または完了後の復元が正常に行われていません'
+);
+
+recordResult(
+  '動的検証: [ISSUE-003] loadInitialData前に選択アーティスト・アルバムが設定され二重描画を防ぐこと',
+  selectedArtistBeforeLoad === 'Official髭男dism' && selectedAlbumBeforeLoad === 'Editorial',
+  'loadInitialData 前に対象アーティスト・アルバムが Store にセットされていません'
+);
+
+// 3.4.2 保存通信中の排他ガード検証
+appInstance1.store.state.isSaving = true;
+mockElements['modal-manual'].classList.remove('hidden');
+let guardedLoadInitialCalled = false;
+appInstance1.loadInitialData = async () => { guardedLoadInitialCalled = true; };
+
+await appInstance1.closeManualModal(false);
+
+recordResult(
+  '動的検証: isSaving=true 中の外部 closeManualModal 呼び出しが排他ガードされること',
+  !mockElements['modal-manual'].classList.contains('hidden') && !guardedLoadInitialCalled,
+  '保存中であるにもかかわらずモーダルが閉じられたか、loadInitialData が呼び出されました'
+);
+appInstance1.store.state.isSaving = false;
+
+// 3.4.3 連続登録 (continuous = true) 動的検証
+const appInstance2 = new AppClass();
+mockElements['modal-manual'].classList.remove('hidden');
+mockElements['manual-continuous-check'].checked = true;
+mockElements['manual-track-number'].value = '1';
+mockElements['manual-track-name'].value = 'Pretender';
+let continuousLoadCalled = false;
+appInstance2.loadInitialData = async () => { continuousLoadCalled = true; };
+
+await appInstance2.submitManualTrack();
+
+recordResult(
+  '動的検証: 連続登録時にモーダルが開いたままであり、loadInitialDataが抑止され、曲番号が+1されること',
+  !mockElements['modal-manual'].classList.contains('hidden') &&
+  !continuousLoadCalled &&
+  Number(mockElements['manual-track-number'].value) === 2 &&
+  mockElements['manual-track-name'].value === '' &&
+  appInstance2.hasManualSaved === true,
+  '連続登録時の挙動（モーダル維持・リロード抑止・番号インクリメント）が不正です'
+);
+
+// その後モーダルを手動で閉じる
+await appInstance2.closeManualModal();
+recordResult(
+  '動的検証: 連続登録後にモーダルを閉じた際、モーダルが閉じ、遅延loadInitialDataが実行されること',
+  mockElements['modal-manual'].classList.contains('hidden') &&
+  continuousLoadCalled &&
+  appInstance2.hasManualSaved === false,
+  '連続登録後のモーダルクローズ時にデータ同期が実行されませんでした'
+);
 
 
 // -----------------------------------------------------------------------------
@@ -898,4 +1093,7 @@ if (findings.length > 0) {
     console.log(`${idx + 1}. [${f.severity}] ${f.testName}: ${f.detail}`);
   });
 }
+
+})();
+
 

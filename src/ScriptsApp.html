@@ -6,6 +6,9 @@ class App {
   constructor() {
     this.store = new Store();
     this.api = new ApiClient();
+    this.hasManualSaved = false;
+    this.lastManualAlbumArtist = null;
+    this.lastManualAlbumName = null;
   }
 
   /**
@@ -793,6 +796,10 @@ class App {
    * @param {object} preset 
    */
   openManualModal(preset = {}) {
+    this.hasManualSaved = false;
+    this.lastManualAlbumArtist = null;
+    this.lastManualAlbumName = null;
+
     const modal = document.getElementById('modal-manual');
     if (modal) modal.classList.remove('hidden');
 
@@ -817,9 +824,28 @@ class App {
     if (trackNameInput) trackNameInput.focus();
   }
 
-  closeManualModal() {
+  async closeManualModal(force = false) {
+    if (this.store.state.isSaving && !force) return;
+
     const modal = document.getElementById('modal-manual');
     if (modal) modal.classList.add('hidden');
+
+    if (this.hasManualSaved) {
+      const targetArtist = this.lastManualAlbumArtist;
+      const targetAlbum = this.lastManualAlbumName;
+      this.hasManualSaved = false;
+      this.lastManualAlbumArtist = null;
+      this.lastManualAlbumName = null;
+
+      try {
+        if (targetArtist) this.store.state.selectedArtist = targetArtist;
+        if (targetAlbum) this.store.state.selectedAlbum = targetAlbum;
+        await this.loadInitialData();
+        if (window.innerWidth < 768) this.setMobileStep(3);
+      } catch (err) {
+        console.error('手動登録後のデータ再取得エラー:', err);
+      }
+    }
   }
 
   /**
@@ -838,10 +864,14 @@ class App {
     const btnText = document.getElementById('manual-submit-btn-text');
     const spinner = document.getElementById('manual-submit-spinner');
     const btnSubmitManual = document.getElementById('btn-submit-manual-track');
+    const btnCloseManual = document.getElementById('btn-close-manual-modal');
+    const btnCancelManual = document.getElementById('btn-cancel-manual-modal');
 
     if (btnText) btnText.classList.add('hidden');
     if (spinner) spinner.classList.remove('hidden');
     if (btnSubmitManual) btnSubmitManual.disabled = true;
+    if (btnCloseManual) btnCloseManual.disabled = true;
+    if (btnCancelManual) btnCancelManual.disabled = true;
 
     const cdNumber = Number(document.getElementById('manual-cd-number').value) || 1;
     const albumArtist = document.getElementById('manual-album-artist').value.trim();
@@ -868,10 +898,9 @@ class App {
       await this.api.saveTrackSingle(payload);
       Utils.showToast(`Track ${trackNumber}: ${trackName} を登録しました`, 'success');
 
-      await this.loadInitialData();
-      this.store.state.selectedArtist = albumArtist;
-      this.store.state.selectedAlbum = albumName;
-      this.renderAll();
+      this.hasManualSaved = true;
+      this.lastManualAlbumArtist = albumArtist;
+      this.lastManualAlbumName = albumName;
 
       if (continuous) {
         // 次の曲番号へインクリメントしてフォーカス
@@ -883,8 +912,7 @@ class App {
           trackNameEl.focus();
         }
       } else {
-        this.closeManualModal();
-        if (window.innerWidth < 768) this.setMobileStep(3);
+        await this.closeManualModal(true);
       }
 
     } catch (err) {
@@ -894,6 +922,8 @@ class App {
       if (btnText) btnText.classList.remove('hidden');
       if (spinner) spinner.classList.add('hidden');
       if (btnSubmitManual) btnSubmitManual.disabled = false;
+      if (btnCloseManual) btnCloseManual.disabled = false;
+      if (btnCancelManual) btnCancelManual.disabled = false;
     }
   }
 
