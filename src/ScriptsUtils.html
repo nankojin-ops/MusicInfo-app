@@ -1,0 +1,105 @@
+<script>
+/**
+ * ユーティリティヘルパークラス
+ */
+class Utils {
+  /**
+   * HTML特殊文字のエスケープ処理 (XSS対策)
+   * @param {string} str 
+   * @returns {string}
+   */
+  static escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return String(str).replace(/[&<>"']/g, (m) => map[m]);
+  }
+
+  /**
+   * ISO日付文字列を YYYY-MM-DD に整形
+   * @param {string|Date} dateVal 
+   * @returns {string}
+   */
+  static formatDate(dateVal) {
+    if (!dateVal) return '';
+    if (dateVal instanceof Date || Object.prototype.toString.call(dateVal) === '[object Date]') {
+      const y = dateVal.getFullYear();
+      const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+      const d = String(dateVal.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return String(dateVal).substring(0, 10);
+  }
+
+  /**
+   * 関数デバウンス
+   * @param {Function} func 
+   * @param {number} wait 
+   * @returns {Function}
+   */
+  static debounce(func, wait = 250) {
+    let timeout;
+    return function(...args) {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+  }
+
+  /**
+   * トースト通知を表示
+   * @param {string} message 
+   * @param {'success'|'error'|'info'|'warning'} type 
+   * @param {number} duration 
+   */
+  static showToast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    const colorMap = {
+      success: 'bg-emerald-600 border-emerald-500 text-white',
+      error: 'bg-rose-600 border-rose-500 text-white',
+      warning: 'bg-amber-600 border-amber-500 text-white',
+      info: 'bg-indigo-600 border-indigo-500 text-white'
+    };
+
+    const colorClass = colorMap[type] || colorMap.info;
+    toast.className = `px-4 py-2.5 rounded-lg shadow-xl text-xs md:text-sm font-medium border flex items-center gap-2 animate-fadeIn pointer-events-auto transition-all ${colorClass}`;
+    toast.innerHTML = `<span>${this.escapeHtml(message)}</span>`;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.classList.add('opacity-0', 'translate-y-2');
+      setTimeout(() => toast.remove(), 200);
+    }, duration);
+  }
+
+  /**
+   * グローバルローディングの表示/非表示
+   * @param {boolean} show 
+   * @param {string} text 
+   */
+  static toggleGlobalLoading(show, text = '処理中...') {
+    const el = document.getElementById('global-loading');
+    const txtEl = document.getElementById('global-loading-text');
+    if (!el) return;
+
+    if (show) {
+      if (txtEl) txtEl.textContent = text;
+      el.classList.remove('hidden');
+    } else {
+      el.classList.add('hidden');
+    }
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = Utils;
+}
+</script>

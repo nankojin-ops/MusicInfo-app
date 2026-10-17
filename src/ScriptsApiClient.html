@@ -1,0 +1,85 @@
+<script>
+/**
+ * GAS 非同期通信クライアントクラス
+ */
+class ApiClient {
+  /**
+   * google.script.run の関数呼び出しをPromise化
+   * @param {string} functionName 
+   * @param  {...any} args 
+   * @returns {Promise<any>}
+   */
+  callGAS(functionName, ...args) {
+    return new Promise((resolve, reject) => {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        // ローカルモック用フォールバック
+        console.warn(`[Mock] google.script.run.${functionName} 呼び出し:`, args);
+        return reject(new Error('google.script.run は GAS 環境でのみ動作します。'));
+      }
+
+      google.script.run
+        .withSuccessHandler((response) => {
+          if (response && response.success === false) {
+            const err = new Error(response.error || 'サーバーエラーが発生しました');
+            err.code = response.code;
+            reject(err);
+          } else {
+            resolve(response ? response.data : null);
+          }
+        })
+        .withFailureHandler((error) => {
+          console.error(`GAS RPC 失敗 [${functionName}]:`, error);
+          reject(new Error(error.message || '通信エラーが発生しました'));
+        })[functionName](...args);
+    });
+  }
+
+  /**
+   * スプレッドシート全楽曲データ取得
+   * @returns {Promise<{ tracks: Array<RawTrackRow>, totalTracks: number, loadedAt: string }>}
+   */
+  getAllData() {
+    return this.callGAS('apiGetAllData');
+  }
+
+  /**
+   * iTunes アルバム検索
+   * @param {string} keyword 
+   * @returns {Promise<{ albums: Array<ItunesAlbumSummary> }>}
+   */
+  searchItunes(keyword) {
+    return this.callGAS('apiSearchItunes', keyword);
+  }
+
+  /**
+   * iTunes アルバム収録曲Lookup
+   * @param {number|string} collectionId 
+   * @returns {Promise<{ albumDetail: ItunesAlbumDetail }>}
+   */
+  lookupItunesAlbum(collectionId) {
+    return this.callGAS('apiLookupItunesAlbum', collectionId);
+  }
+
+  /**
+   * iTunes アルバム一括保存
+   * @param {BatchSavePayload} payload 
+   * @returns {Promise<{ count: number, savedAlbum: string, artworkUrl: string }>}
+   */
+  saveAlbumBatch(payload) {
+    return this.callGAS('apiSaveAlbumBatch', payload);
+  }
+
+  /**
+   * 手動1曲追加
+   * @param {SingleTrackPayload} track 
+   * @returns {Promise<{ savedTrack: RawTrackRow }>}
+   */
+  saveTrackSingle(track) {
+    return this.callGAS('apiSaveTrackSingle', track);
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ApiClient;
+}
+</script>

@@ -1,0 +1,175 @@
+<script>
+/**
+ * フロントエンド状態管理クラス
+ */
+class Store {
+  constructor() {
+    this.state = {
+      allTracks: [],
+      musicCatalog: {},
+      artistList: [],
+      selectedArtist: null,
+      selectedAlbum: null,
+      mobileStep: 1, // 1: アーティスト, 2: アルバム, 3: トラック
+      searchQuery: '',
+      artistFilter: '',
+      isLoading: false,
+      isSaving: false,
+
+      // iTunesモーダル
+      itunesSearchResults: [],
+      selectedItunesAlbum: null,
+
+      // 手動登録フォーム状態
+      manualForm: {
+        cdNumber: 1,
+        albumArtist: '',
+        albumName: '',
+        trackArtist: '',
+        trackNumber: 1,
+        trackName: '',
+        releaseDate: '',
+        artworkUrl: ''
+      },
+
+      // 画像拡大
+      zoomImageUrl: null,
+      zoomImageTitle: ''
+    };
+  }
+
+  /**
+   * 全トラック配列をセットしカタログツリーを構築
+   * @param {Array<RawTrackRow>} tracks 
+   */
+  setTracks(tracks) {
+    this.state.allTracks = Array.isArray(tracks) ? tracks : [];
+    this.buildCatalog();
+  }
+
+  /**
+   * フラット配列から MusicCatalog ツリーを構築
+   */
+  buildCatalog() {
+    const catalog = {};
+
+    this.state.allTracks.forEach((t) => {
+      const artist = t.albumArtist || '不明なアーティスト';
+      const album = t.albumName || '不明なアルバム';
+      const cdNo = Number(t.cdNumber) || 1;
+
+      if (!catalog[artist]) {
+        catalog[artist] = {
+          artistName: artist,
+          albumCount: 0,
+          albums: {}
+        };
+      }
+
+      if (!catalog[artist].albums[album]) {
+        catalog[artist].albums[album] = {
+          albumName: album,
+          albumArtist: artist,
+          releaseDate: t.releaseDate || '',
+          artworkUrl: t.artworkUrl || '',
+          totalTracks: 0,
+          discs: {}
+        };
+        catalog[artist].albumCount++;
+      }
+
+      const albumObj = catalog[artist].albums[album];
+      if (t.releaseDate && !albumObj.releaseDate) albumObj.releaseDate = t.releaseDate;
+      if (t.artworkUrl && !albumObj.artworkUrl) albumObj.artworkUrl = t.artworkUrl;
+
+      if (!albumObj.discs[cdNo]) {
+        albumObj.discs[cdNo] = {
+          cdNumber: cdNo,
+          tracks: []
+        };
+      }
+
+      albumObj.discs[cdNo].tracks.push({
+        cdNumber: cdNo,
+        trackNumber: Number(t.trackNumber) || 1,
+        trackName: t.trackName || '無題',
+        trackArtist: t.trackArtist || artist
+      });
+
+      albumObj.totalTracks++;
+    });
+
+    // 各ディスク内のトラックをトラック番号順にソート
+    Object.values(catalog).forEach((artistData) => {
+      Object.values(artistData.albums).forEach((albumData) => {
+        Object.values(albumData.discs).forEach((discGroup) => {
+          discGroup.tracks.sort((a, b) => a.trackNumber - b.trackNumber);
+        });
+      });
+    });
+
+    this.state.musicCatalog = catalog;
+    this.state.artistList = Object.keys(catalog).sort((a, b) => a.localeCompare(b, 'ja'));
+  }
+
+  /**
+   * フィルターされたアーティスト名一覧を取得
+   * @returns {Array<string>}
+   */
+  getFilteredArtists() {
+    const filter = this.state.artistFilter.trim().toLowerCase();
+    if (!filter) return this.state.artistList;
+    return this.state.artistList.filter((artist) => artist.toLowerCase().includes(filter));
+  }
+
+  /**
+   * 現在選択中アーティストのアルバム配列を取得
+   * @returns {Array<AlbumData>}
+   */
+  getAlbumsForSelectedArtist() {
+    if (!this.state.selectedArtist || !this.state.musicCatalog[this.state.selectedArtist]) {
+      return [];
+    }
+    const albumsObj = this.state.musicCatalog[this.state.selectedArtist].albums;
+    return Object.values(albumsObj).sort((a, b) => {
+      // リリース日降順、無ければアルバム名昇順
+      if (a.releaseDate && b.releaseDate) return b.releaseDate.localeCompare(a.releaseDate);
+      return a.albumName.localeCompare(b.albumName, 'ja');
+    });
+  }
+
+  /**
+   * 現在選択中のアルバムデータを取得
+   * @returns {AlbumData|null}
+   */
+  getSelectedAlbumData() {
+    if (!this.state.selectedArtist || !this.state.selectedAlbum) return null;
+    const artist = this.state.musicCatalog[this.state.selectedArtist];
+    if (!artist) return null;
+    return artist.albums[this.state.selectedAlbum] || null;
+  }
+
+  /**
+   * 全体クイック横断検索
+   * @param {string} query 
+   * @returns {Array<RawTrackRow>}
+   */
+  searchAcrossAllTracks(query) {
+    const q = (query || '').trim().toLowerCase();
+    if (!q) return [];
+    return this.state.allTracks.filter((t) => {
+      return (
+        (t.trackName && t.trackName.toLowerCase().includes(q)) ||
+        (t.albumName && t.albumName.toLowerCase().includes(q)) ||
+        (t.albumArtist && t.albumArtist.toLowerCase().includes(q)) ||
+        (t.trackArtist && t.trackArtist.toLowerCase().includes(q)) ||
+        String(t.cdNumber) === q
+      );
+    });
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = Store;
+}
+</script>

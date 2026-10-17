@@ -1,0 +1,36 @@
+<section id="pane-albums" class="h-full flex flex-col overflow-hidden md:col-span-4 bg-slate-900/60 border-r border-slate-800">
+  <!-- スマホ用 戻るナビゲーションバー (STEP 2表示時) -->
+  <div id="albums-mobile-back-bar" class="md:hidden px-3 py-2 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
+    <button id="btn-back-to-artists" class="inline-flex items-center gap-1.5 py-1 px-2 -ml-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 active:scale-95 transition">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+      </svg>
+      <span>アーティスト一覧</span>
+    </button>
+    <span class="text-xs text-slate-500 font-mono">STEP 2 / 3</span>
+  </div>
+
+  <!-- アーティスト名ヘッダー (PC / スマホ共通) -->
+  <div class="p-3 border-b border-slate-800/80 bg-slate-900/40 flex items-center justify-between flex-shrink-0">
+    <div class="flex items-center gap-2 overflow-hidden">
+      <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Artist:</span>
+      <h2 id="albums-header-artist-name" class="text-sm font-bold text-slate-200 truncate">未選択</h2>
+    </div>
+    <span id="album-count-badge" class="px-2 py-0.5 bg-slate-800 text-slate-400 text-xs rounded-full font-mono flex-shrink-0">
+      0作品
+    </span>
+  </div>
+
+  <!-- アルバムカードグリッドスクロールエリア -->
+  <div id="album-grid-container" class="flex-1 overflow-y-auto p-3 grid grid-cols-2 gap-3 content-start">
+    <!-- 動的レンダリング: <div class="album-card ..."> -->
+  </div>
+
+  <!-- 空状態プレースホルダー -->
+  <div id="album-empty-state" class="hidden flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-500">
+    <svg class="w-10 h-10 mb-2 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+    </svg>
+    <p class="text-xs">アーティストを選択すると<br>アルバムが表示されます</p>
+  </div>
+</section>
