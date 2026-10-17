@@ -111,14 +111,26 @@ MusicInfo-app/
    - HTMLファイル (`.html`): `index`, `Styles`, `Navbar`, `ArtistList`, `AlbumList`, `TrackDetail`, `ItunesModal`, `ManualModal`, `ImageModal`, `ScriptsUtils`, `ScriptsApiClient`, `ScriptsState`, `ScriptsApp`
    - マニフェスト: `appsscript.json`
 
-#### 方法 B: Clasp を用いた CLI デプロイ
-```bash
-# clasp ログイン
-npx @google/clasp login
+#### 方法 B: Clasp を用いた CLI デプロイ (推奨)
+本プロジェクトには `@google/clasp` が導入済みです。以下の手順で簡単にデプロイできます。
 
-# .clasp.json を設定後、push
-npx @google/clasp push
+```bash
+# 1. Google アカウントでログイン
+npm run login
+# または: clasp login
+
+# 2. .clasp.json の設定 (.clasp.json.sample からコピーして scriptId を記入)
+# cp .clasp.json.sample .clasp.json
+# Windows PowerShell の場合:
+Copy-Item .clasp.json.sample .clasp.json
+# エディタで .clasp.json の YOUR_SCRIPT_ID_HERE を作成したGASプロジェクトのIDに書き換えます
+
+# 3. ソースコードを GAS に一括アップロード
+npm run push
+# または: clasp push
 ```
+
+---
 
 ### 3. スクリプトプロパティの設定
 GAS エディタ画面左側の「プロジェクトの設定」（歯車アイコン）を開き、「スクリプト プロパティ」に以下を追加します。
@@ -142,11 +154,17 @@ GAS エディタ画面左側の「プロジェクトの設定」（歯車アイ�
 
 ## 🧪 テストおよびローカル検証
 
-Node.js 環境でビジネスロジックやデータモデルの構文チェック・ユニットテストを実行できます。
+Node.js 環境でビジネスロジックやデータモデルの構文チェック・ユニットテストおよびハッカー視点のレッドチーム破壊テストを実行できます。
 
 ```bash
-# テストの実行
-node tests/run_tests.js
+# 全テスト (単体テスト 43項目 + レッドチーム攻撃テスト 56項目) の実行
+npm test
+
+# 単体テストのみ実行
+npm run test:unit
+
+# レッドチーム攻撃テストのみ実行
+npm run test:redteam
 ```
 
 ---

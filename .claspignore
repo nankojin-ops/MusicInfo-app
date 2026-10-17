@@ -1,0 +1,14 @@
+# clasp アップロード除外設定
+# ドキュメント・テスト・設定ファイル・npm依存関係をGASアップロード対象外にする
+
+node_modules/**
+docs/**
+tests/**
+.git/**
+.gitignore
+package.json
+package-lock.json
+package-lock.json*
+README.md
+AGENT_WORKFLOW.md
+.clasp.json.sample

@@ -1,0 +1,42 @@
+{
+  "name": "musicinfo-app",
+  "version": "1.0.0",
+  "description": "Google Apps Script (GAS) + Tailwind CSS で構築された、音楽CD・アルバム・楽曲コレクション管理システムです。iTunes Search / Lookup API と連携したアルバム・トラック一括インポート機能、Google Drive へのジャケット自動保存、および PC・スマートフォン双方で直感的に操作できる 3ペイン／ステップ型 UI を提供します。",
+  "main": "src/Code.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node tests/run_tests.js && node tests/red_team_attack_test.js",
+    "test:unit": "node tests/run_tests.js",
+    "test:redteam": "node tests/red_team_attack_test.js",
+    "login": "clasp login",
+    "push": "clasp push",
+    "pull": "clasp pull",
+    "deploy": "clasp deploy",
+    "open": "clasp open",
+    "status": "clasp status"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nankojin-ops/MusicInfo-app.git"
+  },
+  "keywords": [
+    "google-apps-script",
+    "gas",
+    "music-manager",
+    "itunes-api",
+    "tailwind-css"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nankojin-ops/MusicInfo-app/issues"
+  },
+  "homepage": "https://github.com/nankojin-ops/MusicInfo-app#readme",
+  "devDependencies": {
+    "@google/clasp": "^3.4.1"
+  }
+}
