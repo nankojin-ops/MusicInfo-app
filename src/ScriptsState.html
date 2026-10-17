@@ -54,9 +54,11 @@ class Store {
     const catalog = {};
 
     this.state.allTracks.forEach((t) => {
-      const artist = t.albumArtist || '不明なアーティスト';
-      const album = t.albumName || '不明なアルバム';
-      const cdNo = Number(t.cdNumber) || 1;
+      if (!t || typeof t !== 'object') return;
+
+      const artist = String(t.albumArtist || '').trim() || '不明なアーティスト';
+      const album = String(t.albumName || '').trim() || '不明なアルバム';
+      const cdNo = (t.cdNumber !== undefined && t.cdNumber !== null && t.cdNumber !== '') ? (Number(t.cdNumber) || 1) : 1;
 
       if (!catalog[artist]) {
         catalog[artist] = {
@@ -70,8 +72,8 @@ class Store {
         catalog[artist].albums[album] = {
           albumName: album,
           albumArtist: artist,
-          releaseDate: t.releaseDate || '',
-          artworkUrl: t.artworkUrl || '',
+          releaseDate: t.releaseDate ? String(t.releaseDate) : '',
+          artworkUrl: t.artworkUrl ? String(t.artworkUrl) : '',
           totalTracks: 0,
           discs: {}
         };
@@ -79,8 +81,8 @@ class Store {
       }
 
       const albumObj = catalog[artist].albums[album];
-      if (t.releaseDate && !albumObj.releaseDate) albumObj.releaseDate = t.releaseDate;
-      if (t.artworkUrl && !albumObj.artworkUrl) albumObj.artworkUrl = t.artworkUrl;
+      if (t.releaseDate && !albumObj.releaseDate) albumObj.releaseDate = String(t.releaseDate);
+      if (t.artworkUrl && !albumObj.artworkUrl) albumObj.artworkUrl = String(t.artworkUrl);
 
       if (!albumObj.discs[cdNo]) {
         albumObj.discs[cdNo] = {
@@ -91,9 +93,9 @@ class Store {
 
       albumObj.discs[cdNo].tracks.push({
         cdNumber: cdNo,
-        trackNumber: Number(t.trackNumber) || 1,
-        trackName: t.trackName || '無題',
-        trackArtist: t.trackArtist || artist
+        trackNumber: (t.trackNumber !== undefined && t.trackNumber !== null && t.trackNumber !== '') ? (Number(t.trackNumber) || 1) : 1,
+        trackName: (t.trackName !== undefined && t.trackName !== null) ? String(t.trackName) : '無題',
+        trackArtist: (t.trackArtist !== undefined && t.trackArtist !== null) ? String(t.trackArtist) : artist
       });
 
       albumObj.totalTracks++;
@@ -155,15 +157,22 @@ class Store {
    * @returns {Array<RawTrackRow>}
    */
   searchAcrossAllTracks(query) {
-    const q = (query || '').trim().toLowerCase();
+    const q = String(query || '').trim().toLowerCase();
     if (!q) return [];
     return this.state.allTracks.filter((t) => {
+      if (!t || typeof t !== 'object') return false;
+      const tName = String(t.trackName !== undefined && t.trackName !== null ? t.trackName : '').toLowerCase();
+      const aName = String(t.albumName !== undefined && t.albumName !== null ? t.albumName : '').toLowerCase();
+      const aArtist = String(t.albumArtist !== undefined && t.albumArtist !== null ? t.albumArtist : '').toLowerCase();
+      const tArtist = String(t.trackArtist !== undefined && t.trackArtist !== null ? t.trackArtist : '').toLowerCase();
+      const cdNoStr = String(t.cdNumber !== undefined && t.cdNumber !== null ? t.cdNumber : '');
+
       return (
-        (t.trackName && t.trackName.toLowerCase().includes(q)) ||
-        (t.albumName && t.albumName.toLowerCase().includes(q)) ||
-        (t.albumArtist && t.albumArtist.toLowerCase().includes(q)) ||
-        (t.trackArtist && t.trackArtist.toLowerCase().includes(q)) ||
-        String(t.cdNumber) === q
+        tName.includes(q) ||
+        aName.includes(q) ||
+        aArtist.includes(q) ||
+        tArtist.includes(q) ||
+        cdNoStr === q
       );
     });
   }

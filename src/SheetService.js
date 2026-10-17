@@ -101,12 +101,12 @@ class SheetService {
 
     const rows = tracks.map((t) => [
       Number(t.cdNumber) || 1,
-      String(albumMeta.albumArtist || '').trim(),
-      String(albumMeta.albumName || '').trim(),
-      String(t.trackArtist || albumMeta.albumArtist || '').trim(),
+      this.escapeFormula_(albumMeta.albumArtist),
+      this.escapeFormula_(albumMeta.albumName),
+      this.escapeFormula_(t.trackArtist || albumMeta.albumArtist),
       Number(t.trackNumber) || 1,
-      String(t.trackName || '').trim(),
-      String(albumMeta.releaseDate || '').trim(),
+      this.escapeFormula_(t.trackName),
+      this.escapeFormula_(albumMeta.releaseDate),
       String(driveArtworkUrl || '').trim()
     ]);
 
@@ -125,12 +125,12 @@ class SheetService {
   appendSingleTrack(trackPayload) {
     const row = [
       Number(trackPayload.cdNumber) || 1,
-      String(trackPayload.albumArtist || '').trim(),
-      String(trackPayload.albumName || '').trim(),
-      String(trackPayload.trackArtist || '').trim(),
+      this.escapeFormula_(trackPayload.albumArtist),
+      this.escapeFormula_(trackPayload.albumName),
+      this.escapeFormula_(trackPayload.trackArtist),
       Number(trackPayload.trackNumber) || 1,
-      String(trackPayload.trackName || '').trim(),
-      String(trackPayload.releaseDate || '').trim(),
+      this.escapeFormula_(trackPayload.trackName),
+      this.escapeFormula_(trackPayload.releaseDate),
       String(trackPayload.artworkUrl || '').trim()
     ];
 
@@ -147,6 +147,20 @@ class SheetService {
       releaseDate: row[6],
       artworkUrl: row[7]
     };
+  }
+
+  /**
+   * スプレッドシート式インジェクション（=, @, +, - で始まる文字列）を無害化
+   * @param {any} val 
+   * @returns {string}
+   */
+  escapeFormula_(val) {
+    if (val === null || val === undefined) return '';
+    const str = String(val).trim();
+    if (/^[=@+\-]/.test(str)) {
+      return `'${str}`;
+    }
+    return str;
   }
 }
 

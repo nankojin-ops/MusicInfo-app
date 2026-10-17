@@ -89,6 +89,9 @@ class DriveService {
   sanitizeFileName(name) {
     if (!name) return 'album';
     const cleaned = String(name)
+      .replace(/\0/g, '')
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      .replace(/\.\.+/g, '_')
       .replace(/[\/\\:\*\?"<>\| \r\n\t]/g, '_')
       .replace(/_+/g, '_')
       .replace(/^_+|_+$/g, '');

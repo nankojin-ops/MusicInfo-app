@@ -135,6 +135,13 @@ class App {
     }
 
     // 手動登録 送信
+    const formManual = document.getElementById('form-manual-track');
+    if (formManual) {
+      formManual.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.submitManualTrack();
+      });
+    }
     const btnSubmitManual = document.getElementById('btn-submit-manual-track');
     if (btnSubmitManual) btnSubmitManual.addEventListener('click', () => this.submitManualTrack());
 
@@ -752,8 +759,11 @@ class App {
 
     const btnText = document.getElementById('manual-submit-btn-text');
     const spinner = document.getElementById('manual-submit-spinner');
+    const btnSubmitManual = document.getElementById('btn-submit-manual-track');
+
     if (btnText) btnText.classList.add('hidden');
     if (spinner) spinner.classList.remove('hidden');
+    if (btnSubmitManual) btnSubmitManual.disabled = true;
 
     const cdNumber = Number(document.getElementById('manual-cd-number').value) || 1;
     const albumArtist = document.getElementById('manual-album-artist').value.trim();
@@ -805,6 +815,7 @@ class App {
       this.store.state.isSaving = false;
       if (btnText) btnText.classList.remove('hidden');
       if (spinner) spinner.classList.add('hidden');
+      if (btnSubmitManual) btnSubmitManual.disabled = false;
     }
   }
 

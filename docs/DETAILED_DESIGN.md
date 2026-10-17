@@ -1,12 +1,12 @@
 # 音楽管理Webアプリケーション 詳細設計書
 
-- **文書バージョン**: 1.1.0
+- **文書バージョン**: 1.2.0
 - **作成日**: 2026年10月17日
 - **最終更新日**: 2026年10月17日
 - **作成ロール**: テックリード／詳細設計者 (`detailed_designer`)
 - **準拠要件定義書**: `docs/REQUIREMENTS.md` (v1.2.0)
 - **準拠基本設計書**: `docs/BASIC_DESIGN.md` (v1.1.0)
-- **ステータス**: オブジェクト指向・役割毎ファイル分割詳細化完了（プログラマー実装用完全仕様）
+- **ステータス**: レッドチーム破壊的テスト結果に基づくセキュリティ・堅牢性仕様強化完了（v1.2.0）
 
 ---
 
@@ -28,26 +28,26 @@
    - 3.2 宣言OAuthスコープと権限解説
 4. [バックエンド詳細設計（GAS / ES6+ Class設計）](#4-バックエンド詳細設計)
    - 4.1 設定管理クラス: `src/Config.js`（`Config`）
-   - 4.2 スプレッドシート永続化クラス: `src/SheetService.js`（`SheetService`）
-   - 4.3 Google Drive ストレージ管理クラス: `src/DriveService.js`（`DriveService`）
+   - 4.2 スプレッドシート永続化クラス: `src/SheetService.js`（`SheetService`）★式インジェクション対策強化
+   - 4.3 Google Drive ストレージ管理クラス: `src/DriveService.js`（`DriveService`）★パストラバーサル・制御文字サニタイズ強化
    - 4.4 iTunes API クライアントクラス: `src/ItunesService.js`（`ItunesService`）
-   - 4.5 業務ロジック統括サービス: `src/MusicService.js`（`MusicService`）
+   - 4.5 業務ロジック統括サービス: `src/MusicService.js`（`MusicService`）★厳格な型・整数・文字長バリデーション強化
    - 4.6 Web Apps エントリーポイント & RPCルーター: `src/Code.js`
 5. [フロントエンド詳細設計（コンポーネント & スタイル）](#5-フロントエンド詳細設計)
    - 5.1 メイン骨格コンテナ: `src/index.html`
    - 5.2 スタイル定義 & カスタムCSS: `src/Styles.html`
    - 5.3 ナビゲーションバー: `src/Navbar.html`
    - 5.4 STEP 1 アーティスト一覧コンポーネント: `src/ArtistList.html`
-   - 5.5 STEP 2 アルバム一覧コンポーネント: `src/AlbumList.html`
-   - 5.6 STEP 3 トラック詳細・ディスク別一覧コンポーネント: `src/TrackDetail.html`
+   - 5.5 STEP 2 アルバム一覧コンポーネント: `src/AlbumList.html` ★44pxタッチターゲット保証
+   - 5.6 STEP 3 トラック詳細・ディスク別一覧コンポーネント: `src/TrackDetail.html` ★44pxタッチターゲット保証
    - 5.7 iTunes 検索・一括登録モーダルコンポーネント: `src/ItunesModal.html`
-   - 5.8 手動楽曲登録モーダルコンポーネント: `src/ManualModal.html`
+   - 5.8 手動楽曲登録モーダルコンポーネント: `src/ManualModal.html` ★Enter送信抑止・物理無効化
    - 5.9 アルバムアート拡大モーダルコンポーネント: `src/ImageModal.html`
 6. [フロントエンド ロジック層詳細設計（JavaScript Classes）](#6-フロントエンド-ロジック層詳細設計)
    - 6.1 共通ユーティリティヘルパー: `src/ScriptsUtils.html`（`Utils`）
    - 6.2 通信クライアントクラス: `src/ScriptsApiClient.html`（`ApiClient`）
-   - 6.3 状態管理クラス: `src/ScriptsState.html`（`Store`）
-   - 6.4 アプリケーションコントローラークラス: `src/ScriptsApp.html`（`App`）
+   - 6.3 状態管理クラス: `src/ScriptsState.html`（`Store`）★不正レコード防御・型安全検索
+   - 6.4 アプリケーションコントローラークラス: `src/ScriptsApp.html`（`App`）★フォーム送信抑止・ボタン物理無効化
 7. [エラーコード体系と例外処理詳細設計](#7-エラーコード体系と例外処理詳細設計)
    - 7.1 エラーコードマスタ仕様
    - 7.2 バックエンド例外ハンドリング仕様
@@ -57,7 +57,8 @@
    - 8.2 Google Drive 永続URLとWeb表示仕様
    - 8.3 スプレッドシート バッチ書き込み & クライアントキャッシュ性能最適化
    - 8.4 スマホUI/UX・44pxタッチターゲット・テンキー入力制御
-9. [プログラマー向け実装チェックリスト＆単体・結合テストケース](#9-プログラマー向け実装チェックリスト単体結合テストケース)
+   - 8.5 スプレッドシート / CSV式インジェクション（Formula Injection）完全防護仕様
+9. [プログラマー向け実装チェックリスト＆単体・結合・レッドチーム破壊テストケース](#9-プログラマー向け実装チェックリスト単体結合レッドチーム破壊テストケース)
 
 ---
 
@@ -65,20 +66,22 @@
 
 ### 1.1 設計思想（オブジェクト指向カプセル化と単一責任原則、コンポーネント指向フロントエンド）
 
-本詳細設計書は、基本設計書（`docs/BASIC_DESIGN.md` v1.1.0）のアーキテクチャ方針に基づき、**「1ファイルに集約せず、役割ごとに明確に分割されたファイル群」** の完全な実装仕様を定義する。
+本詳細設計書は、基本設計書（`docs/BASIC_DESIGN.md` v1.1.0）およびレッドチーム破壊的テスト結果（`docs/REVIEW_REPORT.md`）に基づき、**「1ファイルに集約せず、役割ごとに明確に分割されたファイル群」** の完全な実装仕様を定義する。
 
 #### ① バックエンドのオブジェクト指向設計（GAS V8）
 - **単一責任原則（SRP）**: 設定（`Config`）、データ入出力（`SheetService`）、ファイル保存（`DriveService`）、外部API通信（`ItunesService`）をそれぞれ独立したクラスに隔離し、それらを業務ロジック層（`MusicService`）が協調させる。
 - **薄いエントリーポイント（Facade / Router）**: `Code.js` は外部とのインターフェース（`doGet`, `include`, グローバルRPC関数）のみを担当し、すべてのドメインロジックを `MusicService` へ委譲する。
-- **完全な例外カプセル化**: すべてのRPC関数は最上位で例外を安全に捕捉し、`ApiResponse<T>` 形式でフロントエンドへ均一なエラーレスポンスを返却する。
+- **完全な例外カプセル化と厳格な防御的バリデーション**:
+  - すべてのRPC関数は最上位で例外を安全に捕捉し、`ApiResponse<T>` 形式でフロントエンドへ均一なエラーレスポンスを返却する。
+  - バックエンド入力値に対して厳格な型キャスト、小数を確実に排除する整数・有限数検証（`Number.isInteger` / `Number.isFinite`）、文字数上限検証（255文字）、配列内オブジェクト反復検証を実施し、サーバー内部の未処理例外（`TypeError` 等）を根絶する。
 
 #### ② フロントエンドのコンポーネント指向設計（GAS include方式）
 - **UIコンポーネント分割**: メイン骨格（`index.html`）、スタイル（`Styles.html`）、ヘッダー（`Navbar.html`）、3ペイン画面（`ArtistList.html`, `AlbumList.html`, `TrackDetail.html`）、モーダル群（`ItunesModal.html`, `ManualModal.html`, `ImageModal.html`）へHTMLを分割。
 - **ロジックの3層分離**:
   - `Utils`: 副作用を持たない純粋なヘルパー関数群（HTMLエスケープ、日付整形、デバウンス、トースト表示）。
   - `ApiClient`: `google.script.run` の非同期RPC呼び出しをPromise化し、エラーハンドリングを一元化。
-  - `Store`: 単一の信頼できる情報源（Single Source of Truth）としてアプリケーション状態とインデックスツリーをリアクティブに管理。
-  - `App`: DOMイベントリスナーの登録、`Store` の更新要求、画面再描画（レンダリング）ディスパッチを統括するコントローラー。
+  - `Store`: 単一の信頼できる情報源（Single Source of Truth）としてアプリケーション状態とインデックスツリーをリアクティブに管理。不正レコード混入時のガード句や数値曲名の安全な検索を保証。
+  - `App`: DOMイベントリスナーの登録、`Store` の更新要求、画面再描画（レンダリング）ディスパッチを統括するコントローラー。フォームの予期せぬリロード抑止やボタンの物理無効化（`disabled = true`）を徹底。
 
 ### 1.2 ファイル構成一覧と依存関係マップ
 
@@ -87,34 +90,35 @@ MusicInfo-app/
 ├── docs/
 │   ├── REQUIREMENTS.md           # 要件定義書 (v1.2.0)
 │   ├── BASIC_DESIGN.md           # 基本設計書 (v1.1.0)
-│   └── DETAILED_DESIGN.md        # 詳細設計書 (本書 v1.1.0)
+│   ├── REVIEW_REPORT.md          # レッドチーム破壊的テスト報告書 (v1.0.0)
+│   └── DETAILED_DESIGN.md        # 詳細設計書 (本書 v1.2.0)
 ├── src/
 │   ├── appsscript.json           # GAS マニフェスト (OAuthスコープ定義、V8指定)
 │   │
 │   │   ─── 【GAS バックエンド オブジェクト指向クラス群】 ───
 │   ├── Config.js                 # 設定・スクリプトプロパティ管理クラス (Config)
-│   ├── SheetService.js           # スプレッドシート読み書き・初期化・データ整形クラス (SheetService)
-│   ├── DriveService.js           # Google Drive画像ダウンロード・保存・URL生成クラス (DriveService)
-│   ├── ItunesService.js          # iTunes Search & Lookup API通信・500x500変換・トラック抽出 (ItunesService)
-│   ├── MusicService.js           # 業務ロジック統括クラス (MusicService)
+│   ├── SheetService.js           # スプレッドシート読み書き・式インジェクション対策 (SheetService)
+│   ├── DriveService.js           # Drive保存・パストラバーサル/制御文字サニタイズ (DriveService)
+│   ├── ItunesService.js          # iTunes Search & Lookup API・500x500変換 (ItunesService)
+│   ├── MusicService.js           # 業務ロジック統括・厳格バリデーション (MusicService)
 │   ├── Code.js                   # Web Appsエントリポイント (doGet, include, apiディスパッチャ)
 │   │
 │   │   ─── 【フロントエンド UI コンポーネント (HTML)】 ───
 │   ├── index.html                # メイン骨格 (3ペイン & スマホステップレイアウト、include呼出)
 │   ├── Styles.html               # Tailwind CSS設定、カスタムスクロールバー、ユーティリティCSS
 │   ├── Navbar.html               # ヘッダー、全体検索バー、手動/iTunes登録ボタン
-│   ├── ArtistList.html           # STEP 1 アーティスト一覧コンポーネント (インクリメンタル絞り込み)
-│   ├── AlbumList.html            # STEP 2 アルバムカード一覧コンポーネント (戻るボタン含む)
-│   ├── TrackDetail.html          # STEP 3 トラック詳細・ディスク別テーブルコンポーネント (パンくず含む)
+│   ├── ArtistList.html           # STEP 1 アーティスト一覧コンポーネント (44pxターゲット)
+│   ├── AlbumList.html            # STEP 2 アルバムカード一覧 (スマホ戻るバー 44px保証)
+│   ├── TrackDetail.html          # STEP 3 トラック詳細・ディスク別 (スマホ戻るバー 44px保証)
 │   ├── ItunesModal.html          # iTunes一括検索・プレビュー登録モーダル
-│   ├── ManualModal.html          # 手動楽曲登録フォーム (連続入力アシスト・テンキー対応)
+│   ├── ManualModal.html          # 手動楽曲登録フォーム (Enter送信抑止・連続入力アシスト)
 │   ├── ImageModal.html           # アルバムアート 500x500 拡大プレビューモーダル
 │   │
 │   │   ─── 【フロントエンド ロジック クラス群 (JavaScript)】 ───
 │   ├── ScriptsUtils.html         # XSSサニタイズ (escapeHtml)、トースト通知等のユーティリティ (Utils)
 │   ├── ScriptsApiClient.html     # バックエンド非同期通信クライアントクラス (ApiClient)
-│   ├── ScriptsState.html         # フロントエンド状態管理クラス (Store)
-│   └── ScriptsApp.html           # アプリケーションコントローラークラス (App)
+│   ├── ScriptsState.html         # フロントエンド状態管理クラス (Store: 不正データ防御)
+│   └── ScriptsApp.html           # アプリケーションコントローラークラス (App: ボタン物理無効化)
 └── README.md
 ```
 
@@ -154,11 +158,11 @@ interface ApiResponse<T = any> {
 
 ```typescript
 interface RawTrackRow {
-  cdNumber: number;          // A列: CD番号（ディスク番号: 1以上の正整数）
+  cdNumber: number;          // A列: CD番号（ディスク番号: 1以上の正整数。小数不可）
   albumArtist: string;       // B列: アルバムアーティスト名（最大255文字）
   albumName: string;         // C列: アルバム名（最大255文字）
   trackArtist: string;       // D列: トラックアーティスト名（最大255文字）
-  trackNumber: number;       // E列: トラック番号（1以上の正整数）
+  trackNumber: number;       // E列: トラック番号（1以上の正整数。小数不可）
   trackName: string;         // F列: トラック名（最大255文字）
   releaseDate: string;       // G列: リリース日（YYYY-MM-DD 形式または空文字）
   artworkUrl: string;        // H列: Google Drive Web表示URLまたは空文字
@@ -222,8 +226,8 @@ interface ItunesAlbumSummary {
 
 // iTunes Lookup API から抽出されたトラック
 interface ItunesTrack {
-  cdNumber: number;          // iTunes discNumber からマッピング
-  trackNumber: number;       // iTunes trackNumber
+  cdNumber: number;          // iTunes discNumber からマッピング（正整数）
+  trackNumber: number;       // iTunes trackNumber（正整数）
   trackName: string;         // iTunes trackName
   trackArtist: string;       // iTunes artistName
 }
@@ -246,26 +250,26 @@ interface ItunesAlbumDetail {
 ```typescript
 // apiSaveAlbumBatch ペイロード
 interface BatchSavePayload {
-  albumName: string;
-  albumArtist: string;
+  albumName: string;         // 1〜255文字
+  albumArtist: string;       // 1〜255文字
   releaseDate: string;
   artworkUrl500?: string;    // iTunes 500x500 画像URL
   tracks: Array<{
-    cdNumber: number;
-    trackNumber: number;
-    trackName: string;
-    trackArtist: string;
+    cdNumber: number;        // 1以上の正整数
+    trackNumber: number;     // 1以上の正整数
+    trackName: string;       // 1〜255文字
+    trackArtist: string;     // 1〜255文字
   }>;
 }
 
 // apiSaveTrackSingle ペイロード
 interface SingleTrackPayload {
-  cdNumber: number;
-  albumArtist: string;
-  albumName: string;
-  trackArtist: string;
-  trackNumber: number;
-  trackName: string;
+  cdNumber: number;          // 1以上の正整数（小数は拒絶）
+  albumArtist: string;       // 1〜255文字
+  albumName: string;         // 1〜255文字
+  trackArtist: string;       // 1〜255文字
+  trackNumber: number;       // 1以上の正整数（小数は拒絶）
+  trackName: string;         // 1〜255文字
   releaseDate?: string;
   artworkUrl?: string;
 }
@@ -447,13 +451,27 @@ class Config {
 - 全データ行の読み込みと `RawTrackRow[]` へのマッピング（日付フォーマットの正規化含む）。
 - iTunes一括登録用の複数行バッチ書き込み（`setValues`）。
 - 手動1曲登録用の1行追記（`appendRow`）。
+- **スプレッドシート/CSV式インジェクション（Formula Injection）対策**: 先頭が `=`, `@`, `+`, `-` で始まる文字列に対し、先頭にシングルクォート `'` を付加して安全にプレーンテキスト化。
 
 #### 【メソッド仕様】
 
 ##### ① `constructor(config)`
 - **引数**: `config: Config`
 
-##### ② `getOrCreateSheet(): GoogleAppsScript.Spreadsheet.Sheet`
+##### ② `escapeFormula_(val)`
+- **引数**: `val: any`
+- **戻り値**: `any`
+- **処理ロジック**:
+  ```javascript
+  if (typeof val !== 'string') return val;
+  const trimmed = val.trim();
+  if (trimmed.startsWith('=') || trimmed.startsWith('@') || trimmed.startsWith('+') || trimmed.startsWith('-')) {
+    return `'${val}`;
+  }
+  return val;
+  ```
+
+##### ③ `getOrCreateSheet(): GoogleAppsScript.Spreadsheet.Sheet`
 - **処理ロジック**:
   1. `SpreadsheetApp.openById(this.config.getSpreadsheetId())` でスプレッドシートを開く。
   2. シート名 `this.config.getSheetName()` でシートを取得。
@@ -461,7 +479,7 @@ class Config {
   4. 存在する場合、`sheet.getLastRow() === 0` であれば `this.initHeaderIfEmpty(sheet)` を呼び出す。
   5. `sheet` を返却する。
 
-##### ③ `initHeaderIfEmpty(sheet)`
+##### ④ `initHeaderIfEmpty(sheet)`
 - **処理ロジック**:
   1. ヘッダー配列 `Config.CONSTANTS.SHEET_HEADERS` を取得。
   2. `sheet.getRange(1, 1, 1, headers.length).setValues([headers])` を実行。
@@ -472,7 +490,7 @@ class Config {
      - 水平配置: `center`
   4. `sheet.setFrozenRows(1)` で1行目を固定表示に設定。
 
-##### ④ `fetchAllTracks(): RawTrackRow[]`
+##### ⑤ `fetchAllTracks(): RawTrackRow[]`
 - **処理ロジック**:
   1. `const sheet = this.getOrCreateSheet();`
   2. `const lastRow = sheet.getLastRow();`
@@ -489,22 +507,22 @@ class Config {
      - `artworkUrl`: `String(row[7] || '').trim()`
   6. 変換後の配列を返却。
 
-##### ⑤ `insertTracksBatch(tracks, albumMeta, driveArtworkUrl): number`
+##### ⑥ `insertTracksBatch(tracks, albumMeta, driveArtworkUrl): number`
 - **引数**:
   - `tracks`: `Array<{ cdNumber: number, trackNumber: number, trackName: string, trackArtist: string }>`
   - `albumMeta`: `{ albumName: string, albumArtist: string, releaseDate: string }`
   - `driveArtworkUrl`: `string`
 - **処理ロジック**:
   1. `tracks` が空の場合は 0 を返却。
-  2. `tracks` を 2次元配列 `rows`（行データ）に変換:
+  2. `tracks` を 2次元配列 `rows`（行データ）に変換（式インジェクション対策 `escapeFormula_` を適用）:
      ```javascript
      const rows = tracks.map(t => [
        Number(t.cdNumber) || 1,
-       String(albumMeta.albumArtist).trim(),
-       String(albumMeta.albumName).trim(),
-       String(t.trackArtist || albumMeta.albumArtist).trim(),
+       this.escapeFormula_(String(albumMeta.albumArtist).trim()),
+       this.escapeFormula_(String(albumMeta.albumName).trim()),
+       this.escapeFormula_(String(t.trackArtist || albumMeta.albumArtist).trim()),
        Number(t.trackNumber) || 1,
-       String(t.trackName).trim(),
+       this.escapeFormula_(String(t.trackName).trim()),
        String(albumMeta.releaseDate || '').trim(),
        String(driveArtworkUrl || '').trim()
      ]);
@@ -514,18 +532,18 @@ class Config {
   5. `sheet.getRange(startRow, 1, rows.length, 8).setValues(rows);`
   6. 挿入件数 `rows.length` を返却。
 
-##### ⑥ `appendSingleTrack(trackPayload): RawTrackRow`
+##### ⑦ `appendSingleTrack(trackPayload): RawTrackRow`
 - **引数**: `trackPayload: SingleTrackPayload`
 - **処理ロジック**:
-  1. 1行配列を生成:
+  1. 1行配列を生成（式インジェクション対策 `escapeFormula_` を適用）:
      ```javascript
      const row = [
        Number(trackPayload.cdNumber) || 1,
-       String(trackPayload.albumArtist).trim(),
-       String(trackPayload.albumName).trim(),
-       String(trackPayload.trackArtist).trim(),
+       this.escapeFormula_(String(trackPayload.albumArtist).trim()),
+       this.escapeFormula_(String(trackPayload.albumName).trim()),
+       this.escapeFormula_(String(trackPayload.trackArtist).trim()),
        Number(trackPayload.trackNumber) || 1,
-       String(trackPayload.trackName).trim(),
+       this.escapeFormula_(String(trackPayload.trackName).trim()),
        String(trackPayload.releaseDate || '').trim(),
        String(trackPayload.artworkUrl || '').trim()
      ];
@@ -540,6 +558,7 @@ class Config {
 
 #### 【責務】
 外部URLからの画像バイナリ取得、Driveフォルダ取得、ファイル作成、公開閲覧権限付与、およびWeb表示用URLの生成を担当する。
+パストラバーサル記号、ヌル文字（`\0`）、制御文字の完全サニタイズを実施。
 
 #### 【メソッド仕様】
 
@@ -571,10 +590,20 @@ class Config {
 - **戻り値**: `https://drive.google.com/uc?export=view&id=${fileId}`
 
 ##### ⑤ `sanitizeFileName(name): string`
+- **引数**: `name: string`
+- **戻り値**: サニタイズ済みファイル名文字列
 - **処理ロジック**:
-  1. `if (!name) return 'album';`
-  2. 禁止記号 `[\/\\:\*\?"<>\| \r\n\t]` をアンダースコア `_` に置換。
-  3. 最大長 60 文字で切り詰めて返却。
+  ```javascript
+  if (!name) return 'album';
+  const cleaned = String(name)
+    .replace(/\0/g, '')                      // ヌル文字除去
+    .replace(/[\x00-\x1F\x7F]/g, '')          // ASCII制御文字除去
+    .replace(/\.\.+/g, '_')                   // パストラバーサル (..) 置換
+    .replace(/[\/\\:\*\?"<>\| \r\n\t]/g, '_') // 禁止文字置換
+    .replace(/_+/g, '_')                      // 連続アンダースコア統合
+    .replace(/^_+|_+$/g, '');                 // 前後アンダースコアトリム
+  return cleaned.substring(0, 60) || 'album';
+  ```
 
 ---
 
@@ -650,6 +679,7 @@ Apple iTunes Search API および Lookup API との通信、検索クエリ生�
 
 #### 【責務】
 すべての業務ユースケース（データ一括取得、iTunesアルバム検索、iTunesトラック検索、iTunesアルバム一括保存トランザクション、手動1曲追加）を統括するオーケストレーター。
+**厳格な防御的バリデーション（非文字列の事前安全キャスト、小数を確実に排除する整数・有限数検証、文字長上限255文字検証、tracks配列要素の反復検査）** を実施。
 
 #### 【メソッド仕様】
 
@@ -670,64 +700,174 @@ Apple iTunes Search API および Lookup API との通信、検索クエリ生�
 
 ##### ③ `searchItunesAlbums(keyword)`
 - **処理ロジック**:
-  1. `if (!keyword || !keyword.trim()) throw new Error('検索キーワードを入力してください。');`
-  2. `const albums = this.itunesService.searchAlbums(keyword);`
-  3. `return { albums: albums };`
+  ```javascript
+  const cleaned = String(keyword || '').trim();
+  if (!cleaned) {
+    const err = new Error('検索キーワードを入力してください。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+  const albums = this.itunesService.searchAlbums(cleaned);
+  return { albums: albums };
+  ```
 
 ##### ④ `lookupItunesAlbum(collectionId)`
 - **処理ロジック**:
-  1. `if (!collectionId) throw new Error('コレクションIDが無効です。');`
-  2. `const detail = this.itunesService.lookupAlbumSongs(collectionId);`
-  3. `return { albumDetail: detail };`
+  ```javascript
+  const idNum = Number(collectionId);
+  if (!idNum || !Number.isInteger(idNum) || idNum < 1 || !Number.isFinite(idNum)) {
+    const err = new Error('コレクションIDが無効です。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+  const detail = this.itunesService.lookupAlbumSongs(idNum);
+  return { albumDetail: detail };
+  ```
 
 ##### ⑤ `saveAlbumFromItunes(payload)`
 - **引数**: `payload: BatchSavePayload`
-- **バリデーション**:
-  - `payload.albumName` が空でないこと
-  - `payload.albumArtist` が空でないこと
-  - `payload.tracks` が1件以上の配列であること
-  - 不正時はエラーコード `VALIDATION_FAILED` で例外送出。
+- **バリデーション仕様**:
+  ```javascript
+  if (!payload || typeof payload !== 'object') {
+    const err = new Error('リクエストペイロードが不正です。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+
+  const albumName = String(payload.albumName || '').trim();
+  const albumArtist = String(payload.albumArtist || '').trim();
+  const releaseDate = String(payload.releaseDate || '').trim();
+
+  if (!albumName || !albumArtist) {
+    const err = new Error('アルバム名およびアルバムアーティスト名は必須です。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+
+  if (albumName.length > 255 || albumArtist.length > 255) {
+    const err = new Error('アルバム名およびアーティスト名は最大255文字以内で入力してください。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+
+  if (!Array.isArray(payload.tracks) || payload.tracks.length === 0) {
+    const err = new Error('登録するトラック情報がありません。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+
+  // tracks 配列内各要素の厳格な反復バリデーション
+  for (let i = 0; i < payload.tracks.length; i++) {
+    const t = payload.tracks[i];
+    if (!t || typeof t !== 'object') {
+      const err = new Error(`トラックデータ[${i}]が不正なオブジェクトです。`);
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const tName = String(t.trackName || '').trim();
+    if (!tName) {
+      const err = new Error(`トラックデータ[${i}]の曲名が未設定です。`);
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    if (tName.length > 255) {
+      const err = new Error(`トラックデータ[${i}]の曲名が255文字を超えています。`);
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const cdNo = Number(t.cdNumber) || 1;
+    const trkNo = Number(t.trackNumber) || (i + 1);
+    if (!Number.isInteger(cdNo) || cdNo < 1 || !Number.isFinite(cdNo)) {
+      const err = new Error(`トラックデータ[${i}]のCD番号は1以上の整数を指定してください。`);
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    if (!Number.isInteger(trkNo) || trkNo < 1 || !Number.isFinite(trkNo)) {
+      const err = new Error(`トラックデータ[${i}]のトラック番号は1以上の整数を指定してください。`);
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+  }
+  ```
 - **処理ロジック**:
   1. 画像の保存:
      ```javascript
      let driveArtworkUrl = '';
      if (payload.artworkUrl500) {
-       driveArtworkUrl = this.driveService.downloadAndSaveArtwork(payload.artworkUrl500, payload.albumName);
+       driveArtworkUrl = this.driveService.downloadAndSaveArtwork(payload.artworkUrl500, albumName);
      }
      ```
   2. スプレッドシートへのバッチ保存:
      ```javascript
      const count = this.sheetService.insertTracksBatch(payload.tracks, {
-       albumName: payload.albumName,
-       albumArtist: payload.albumArtist,
-       releaseDate: payload.releaseDate
+       albumName: albumName,
+       albumArtist: albumArtist,
+       releaseDate: releaseDate
      }, driveArtworkUrl);
      ```
   3. 結果オブジェクトの返却:
      ```javascript
      return {
        count: count,
-       savedAlbum: payload.albumName,
+       savedAlbum: albumName,
        artworkUrl: driveArtworkUrl
      };
      ```
 
 ##### ⑥ `saveSingleTrack(trackPayload)`
 - **引数**: `trackPayload: SingleTrackPayload`
-- **バリデーション**:
-  - `cdNumber >= 1`
-  - `albumArtist`, `albumName`, `trackArtist`, `trackName` が非空文字列
-  - `trackNumber >= 1`
+- **バリデーション仕様**:
+  ```javascript
+  if (!trackPayload || typeof trackPayload !== 'object') {
+    const err = new Error('リクエストペイロードが不正です。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+
+  // CD番号・トラック番号のデフォルトフォールバックと整数・有限数検証
+  const cdNumber = (trackPayload.cdNumber !== undefined && trackPayload.cdNumber !== null && trackPayload.cdNumber !== '')
+    ? Number(trackPayload.cdNumber)
+    : 1;
+  const trackNumber = (trackPayload.trackNumber !== undefined && trackPayload.trackNumber !== null && trackPayload.trackNumber !== '')
+    ? Number(trackPayload.trackNumber)
+    : 1;
+
+  if (!Number.isInteger(cdNumber) || cdNumber < 1 || !Number.isFinite(cdNumber)) {
+    const err = new Error('CD番号は1以上の整数を指定してください。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+  if (!Number.isInteger(trackNumber) || trackNumber < 1 || !Number.isFinite(trackNumber)) {
+    const err = new Error('トラック番号は1以上の整数を指定してください。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+
+  // 文字列のトリムと必須項目・文字長検証
+  const albumArtist = String(trackPayload.albumArtist || '').trim();
+  const albumName = String(trackPayload.albumName || '').trim();
+  const trackArtist = String(trackPayload.trackArtist || albumArtist).trim();
+  const trackName = String(trackPayload.trackName || '').trim();
+
+  if (!albumArtist || !albumName || !trackName) {
+    const err = new Error('必須項目（アルバムアーティスト、アルバム名、曲名）を入力してください。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+
+  if (albumArtist.length > 255 || albumName.length > 255 || trackArtist.length > 255 || trackName.length > 255) {
+    const err = new Error('各文字列項目は最大255文字以内で入力してください。');
+    err.code = 'VALIDATION_FAILED';
+    throw err;
+  }
+  ```
 - **処理ロジック**:
-  1. `const saved = this.sheetService.appendSingleTrack(trackPayload);`
+  1. `const saved = this.sheetService.appendSingleTrack({ cdNumber, albumArtist, albumName, trackArtist, trackNumber, trackName, releaseDate: trackPayload.releaseDate, artworkUrl: trackPayload.artworkUrl });`
   2. `return { savedTrack: saved };`
 
 ---
 
 ### 4.6 Web Apps エントリーポイント & RPCルーター: `src/Code.js`
-
-#### 【責務】
-GASのWeb Apps仕様を満たすエントリポイント関数（`doGet`）、HTMLServiceテンプレート用インクルードヘルパー（`include`）、および `google.script.run` から呼び出されるグローバルRPCエンドポイント群を定義する。
 
 #### 【完全な実装コード仕様】
 
@@ -847,11 +987,6 @@ function apiSaveTrackSingle(track) {
 
 ### 5.1 メイン骨格コンテナ: `src/index.html`
 
-#### 【責務】
-HTML5構造、Tailwind CDN読み込み、各HTMLファイル（コンポーネントおよびスクリプト）のインクルード、およびエントリーポイント起動を担当。
-
-#### 【完全な実装骨格】
-
 ```html
 <!DOCTYPE html>
 <html lang="ja" class="h-full bg-slate-950 text-slate-100">
@@ -916,11 +1051,6 @@ HTML5構造、Tailwind CDN読み込み、各HTMLファイル（コンポーネ�
 
 ### 5.2 スタイル定義 & カスタムCSS: `src/Styles.html`
 
-#### 【責務】
-Tailwind CSSの設定拡張、カスタムスクロールバー、タップ操作時の青い枠消去、およびアニメーションCSSの定義。
-
-#### 【完全な実装仕様】
-
 ```html
 <style>
   /* スマホでのタップハイライト無効化 */
@@ -981,11 +1111,6 @@ Tailwind CSSの設定拡張、カスタムスクロールバー、タップ操�
 ---
 
 ### 5.3 ナビゲーションバー: `src/Navbar.html`
-
-#### 【責務】
-アプリケーションタイトル、全体クイック横断検索バー、iTunes登録モーダル起動ボタン、手動登録モーダル起動ボタン、再読み込みボタンを配置。
-
-#### 【HTML構造・ID・クラス定義】
 
 ```html
 <header id="app-header" class="h-14 border-b border-slate-800 bg-slate-950 flex items-center justify-between px-3 md:px-4 z-20 flex-shrink-0">
@@ -1053,11 +1178,6 @@ Tailwind CSSの設定拡張、カスタムスクロールバー、タップ操�
 
 ### 5.4 STEP 1 アーティスト一覧コンポーネント: `src/ArtistList.html`
 
-#### 【責務】
-アーティスト一覧の表示、アーティスト名でのインクリメンタル絞り込み、件数バッジ表示、アーティスト選択イベントの発火。
-
-#### 【HTML構造・ID・クラス定義】
-
 ```html
 <section id="pane-artists" class="h-full flex flex-col overflow-hidden md:col-span-3 bg-slate-900 border-r border-slate-800">
   <!-- スマホ用全体検索バー (STEP 1のみ表示) -->
@@ -1096,7 +1216,7 @@ Tailwind CSSの設定拡張、カスタムスクロールバー、タップ操�
 
   <!-- アーティストリストスクロールエリア -->
   <div id="artist-list-container" class="flex-1 overflow-y-auto divide-y divide-slate-800/40">
-    <!-- 動的レンダリング: <div class="artist-item ..."> -->
+    <!-- 動的レンダリング: <div class="artist-item ... min-h-[44px]"> -->
   </div>
 
   <!-- 空状態プレースホルダー -->
@@ -1110,16 +1230,15 @@ Tailwind CSSの設定拡張、カスタムスクロールバー、タップ操�
 
 ### 5.5 STEP 2 アルバム一覧コンポーネント: `src/AlbumList.html`
 
-#### 【責務】
-選択されたアーティストのアルバムカード一覧表示、スマホ表示時の「< アーティスト一覧へ戻る」ナビゲーションバーの提供、アルバム選択イベントの発火。
-
-#### 【HTML構造・ID・クラス定義】
+> [!IMPORTANT]
+> **WCAG 2.1 AAA基準 44pxタッチターゲット保証**:
+> モバイル戻るボタン `#btn-back-to-artists` には `min-h-[44px] min-w-[44px] px-3 py-2.5` を指定し、狭小画面や片手親指操作時の押し間違えを完全に防止。
 
 ```html
 <section id="pane-albums" class="h-full flex flex-col overflow-hidden md:col-span-4 bg-slate-900/60 border-r border-slate-800">
-  <!-- スマホ用 戻るナビゲーションバー (STEP 2表示時) -->
-  <div id="albums-mobile-back-bar" class="md:hidden px-3 py-2 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
-    <button id="btn-back-to-artists" class="inline-flex items-center gap-1.5 py-1 px-2 -ml-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 active:scale-95 transition">
+  <!-- スマホ用 戻るナビゲーションバー (STEP 2表示時: 44px最小ターゲット確保) -->
+  <div id="albums-mobile-back-bar" class="md:hidden px-3 py-1 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
+    <button id="btn-back-to-artists" class="min-h-[44px] min-w-[44px] inline-flex items-center gap-1.5 px-3 py-2.5 -ml-2 text-xs font-medium text-indigo-400 hover:text-indigo-300 active:scale-95 transition">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
       </svg>
@@ -1158,16 +1277,15 @@ Tailwind CSSの設定拡張、カスタムスクロールバー、タップ操�
 
 ### 5.6 STEP 3 トラック詳細・ディスク別一覧コンポーネント: `src/TrackDetail.html`
 
-#### 【責務】
-選択されたアルバムのメタデータ（大判ジャケット、タイトル、アーティスト、リリース日、総トラック数）、およびディスク別（`Disc 1`, `Disc 2` ...）の縦積み楽曲リストを表示。スマホ横スクロールを排除し、タップでジャケット拡大モーダルを起動する。
-
-#### 【HTML構造・ID・クラス定義】
+> [!IMPORTANT]
+> **WCAG 2.1 AAA基準 44pxタッチターゲット保証**:
+> モバイル戻るボタン `#btn-back-to-albums` には `min-h-[44px] min-w-[44px] px-3 py-2.5` を指定。
 
 ```html
 <section id="pane-tracks" class="h-full flex flex-col overflow-y-auto md:col-span-5 bg-slate-950 p-3 md:p-5">
-  <!-- スマホ用 戻るナビゲーションバー (STEP 3表示時) -->
-  <div id="tracks-mobile-back-bar" class="md:hidden -mx-3 -mt-3 mb-3 px-3 py-2 border-b border-slate-800 bg-slate-950 flex items-center justify-between sticky top-0 z-10">
-    <button id="btn-back-to-albums" class="inline-flex items-center gap-1.5 py-1 px-2 -ml-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 active:scale-95 transition">
+  <!-- スマホ用 戻るナビゲーションバー (STEP 3表示時: 44px最小ターゲット確保) -->
+  <div id="tracks-mobile-back-bar" class="md:hidden -mx-3 -mt-3 mb-3 px-3 py-1 border-b border-slate-800 bg-slate-950 flex items-center justify-between sticky top-0 z-10">
+    <button id="btn-back-to-albums" class="min-h-[44px] min-w-[44px] inline-flex items-center gap-1.5 px-3 py-2.5 -ml-2 text-xs font-medium text-indigo-400 hover:text-indigo-300 active:scale-95 transition">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
       </svg>
@@ -1242,11 +1360,6 @@ Tailwind CSSの設定拡張、カスタムスクロールバー、タップ操�
 ---
 
 ### 5.7 iTunes 検索・一括登録モーダルコンポーネント: `src/ItunesModal.html`
-
-#### 【責務】
-Apple iTunes Search API からのアルバム検索、検索候補一覧の表示、選択アルバムのLookup（`discNumber` 自動マッピング）プレビュー表示、および Google Drive & スプレッドシートへの一括登録トリガー。
-
-#### 【HTML構造・ID・クラス定義】
 
 ```html
 <div id="modal-itunes" class="hidden fixed inset-0 z-50 flex items-center justify-center p-2 md:p-4 bg-slate-950/80 backdrop-blur-sm">
@@ -1352,10 +1465,9 @@ Apple iTunes Search API からのアルバム検索、検索候補一覧の表�
 
 ### 5.8 手動楽曲登録モーダルコンポーネント: `src/ManualModal.html`
 
-#### 【責務】
-1曲単位での手動登録フォーム。スマートフォンでのテンキー入力支援（`inputmode="numeric"`）、および「続けて次のトラックを登録する」連続登録アシストチェックボックスを搭載。
-
-#### 【HTML構造・ID・クラス定義】
+> [!IMPORTANT]
+> **Enter送信抑止 & 物理無効化**:
+> `<form id="form-manual-track">` に `onsubmit="event.preventDefault();"` を指定し、入力欄でのEnterキー押下による不慮のページリロードを完全抑止。送信ボタンには `id="btn-submit-manual-track"` を付与し、処理実行中に `disabled = true` を適用。
 
 ```html
 <div id="modal-manual" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 bg-slate-950/80 backdrop-blur-sm">
@@ -1376,20 +1488,20 @@ Apple iTunes Search API からのアルバム検索、検索候補一覧の表�
       </button>
     </div>
 
-    <!-- フォーム本体 -->
-    <form id="form-manual-track" class="p-4 space-y-3 overflow-y-auto max-h-[75vh]">
+    <!-- フォーム本体 (Enter押下デフォルト送信を抑止) -->
+    <form id="form-manual-track" onsubmit="event.preventDefault();" class="p-4 space-y-3 overflow-y-auto max-h-[75vh]">
       
       <!-- アルバムアーティスト -->
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">アルバムアーティスト名 <span class="text-rose-500">*</span></label>
-        <input type="text" id="manual-album-artist" required placeholder="例: Official髭男dism"
+        <input type="text" id="manual-album-artist" required maxlength="255" placeholder="例: Official髭男dism"
           class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
       </div>
 
       <!-- アルバム名 -->
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">アルバム名 <span class="text-rose-500">*</span></label>
-        <input type="text" id="manual-album-name" required placeholder="例: Editorial"
+        <input type="text" id="manual-album-name" required maxlength="255" placeholder="例: Editorial"
           class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
       </div>
 
@@ -1397,12 +1509,12 @@ Apple iTunes Search API からのアルバム検索、検索候補一覧の表�
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">CD番号 (Disc) <span class="text-rose-500">*</span></label>
-          <input type="number" id="manual-cd-number" min="1" value="1" required inputmode="numeric" pattern="[0-9]*"
+          <input type="number" id="manual-cd-number" min="1" step="1" value="1" required inputmode="numeric" pattern="[0-9]*"
             class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-200 font-mono focus:outline-none focus:border-indigo-500">
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">トラック番号 <span class="text-rose-500">*</span></label>
-          <input type="number" id="manual-track-number" min="1" value="1" required inputmode="numeric" pattern="[0-9]*"
+          <input type="number" id="manual-track-number" min="1" step="1" value="1" required inputmode="numeric" pattern="[0-9]*"
             class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-200 font-mono focus:outline-none focus:border-indigo-500">
         </div>
       </div>
@@ -1410,14 +1522,14 @@ Apple iTunes Search API からのアルバム検索、検索候補一覧の表�
       <!-- トラック名 -->
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">トラック名 (曲名) <span class="text-rose-500">*</span></label>
-        <input type="text" id="manual-track-name" required placeholder="例: Cry Baby"
+        <input type="text" id="manual-track-name" required maxlength="255" placeholder="例: Cry Baby"
           class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
       </div>
 
       <!-- トラックアーティスト -->
       <div>
         <label class="block text-xs font-semibold text-slate-300 mb-1">トラックアーティスト名 <span class="text-rose-500">*</span></label>
-        <input type="text" id="manual-track-artist" required placeholder="アルバムアーティストと同一の場合は自動設定"
+        <input type="text" id="manual-track-artist" required maxlength="255" placeholder="アルバムアーティストと同一の場合は自動設定"
           class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-200 focus:outline-none focus:border-indigo-500">
       </div>
 
@@ -1447,10 +1559,10 @@ Apple iTunes Search API からのアルバム検索、検索候補一覧の表�
 
     <!-- フッター -->
     <div class="px-4 py-3 border-t border-slate-800 bg-slate-950 flex items-center justify-end gap-2 flex-shrink-0">
-      <button id="btn-cancel-manual-modal" class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-800 hover:bg-slate-800 rounded-lg transition">
+      <button id="btn-cancel-manual-modal" type="button" class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-800 hover:bg-slate-800 rounded-lg transition">
         キャンセル
       </button>
-      <button id="btn-submit-manual-track" class="px-4 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow transition flex items-center gap-1.5">
+      <button id="btn-submit-manual-track" type="button" class="px-4 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg shadow transition flex items-center gap-1.5">
         <span id="manual-submit-btn-text">登録する</span>
         <div id="manual-submit-spinner" class="hidden w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
       </button>
@@ -1463,11 +1575,6 @@ Apple iTunes Search API からのアルバム検索、検索候補一覧の表�
 ---
 
 ### 5.9 アルバムアート拡大モーダルコンポーネント: `src/ImageModal.html`
-
-#### 【責務】
-アルバムジャケット画像（500x500 高精細画像）の拡大プレビュー表示、ESCキーやオーバーレイクリックでのクローズ。
-
-#### 【HTML構造・ID・クラス定義】
 
 ```html
 <div id="modal-image" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
@@ -1498,11 +1605,6 @@ Apple iTunes Search API からのアルバム検索、検索候補一覧の表�
 
 ### 6.1 共通ユーティリティヘルパー: `src/ScriptsUtils.html`（`Utils`）
 
-#### 【責務】
-HTMLエスケープ（XSS防止）、日付整形、関数のデバウンス、トースト通知表示、グローバルローディング表示の提供。
-
-#### 【完全な実装コード仕様】
-
 ```html
 <script>
 /**
@@ -1511,7 +1613,7 @@ HTMLエスケープ（XSS防止）、日付整形、関数のデバウンス、�
 class Utils {
   /**
    * HTML特殊文字のエスケープ処理 (XSS対策)
-   * @param {string} str 
+   * @param {string|any} str 
    * @returns {string}
    */
   static escapeHtml(str) {
@@ -1611,11 +1713,6 @@ class Utils {
 
 ### 6.2 通信クライアントクラス: `src/ScriptsApiClient.html`（`ApiClient`）
 
-#### 【責務】
-`google.script.run` のRPC呼び出しをPromiseでラップし、タイムアウトやバックエンド例外を標準化して返却する。
-
-#### 【完全な実装コード仕様】
-
 ```html
 <script>
 /**
@@ -1631,7 +1728,6 @@ class ApiClient {
   callGAS(functionName, ...args) {
     return new Promise((resolve, reject) => {
       if (typeof google === 'undefined' || !google.script || !google.script.run) {
-        // ローカルモック用フォールバック
         console.warn(`[Mock] google.script.run.${functionName} 呼び出し:`, args);
         return reject(new Error('google.script.run は GAS 環境でのみ動作します。'));
       }
@@ -1705,7 +1801,9 @@ class ApiClient {
 ### 6.3 状態管理クラス: `src/ScriptsState.html`（`Store`）
 
 #### 【責務】
-単一状態モデル `StoreState` を保持し、フラット行からの階層ツリー（`MusicCatalog`）の構築、アーティスト絞り込み、全体横断検索、選択状態の保持を担当する。
+単一状態モデル `StoreState` を保持。
+- 不正要素混入時のクラッシュ防止（null/undefined ガード）。
+- 数値型の曲名・アルバム名に対応した型安全な横断検索。
 
 #### 【完全な実装コード仕様】
 
@@ -1761,13 +1859,17 @@ class Store {
 
   /**
    * フラット配列から MusicCatalog ツリーを構築
+   * 不正レコード（null, undefined, 非オブジェクト）を安全にスキップ
    */
   buildCatalog() {
     const catalog = {};
 
     this.state.allTracks.forEach((t) => {
-      const artist = t.albumArtist || '不明なアーティスト';
-      const album = t.albumName || '不明なアルバム';
+      // 不正レコードの防御ガード
+      if (!t || typeof t !== 'object') return;
+
+      const artist = String(t.albumArtist || '不明なアーティスト').trim() || '不明なアーティスト';
+      const album = String(t.albumName || '不明なアルバム').trim() || '不明なアルバム';
       const cdNo = Number(t.cdNumber) || 1;
 
       if (!catalog[artist]) {
@@ -1782,8 +1884,8 @@ class Store {
         catalog[artist].albums[album] = {
           albumName: album,
           albumArtist: artist,
-          releaseDate: t.releaseDate || '',
-          artworkUrl: t.artworkUrl || '',
+          releaseDate: t.releaseDate ? String(t.releaseDate).trim() : '',
+          artworkUrl: t.artworkUrl ? String(t.artworkUrl).trim() : '',
           totalTracks: 0,
           discs: {}
         };
@@ -1791,8 +1893,8 @@ class Store {
       }
 
       const albumObj = catalog[artist].albums[album];
-      if (t.releaseDate && !albumObj.releaseDate) albumObj.releaseDate = t.releaseDate;
-      if (t.artworkUrl && !albumObj.artworkUrl) albumObj.artworkUrl = t.artworkUrl;
+      if (t.releaseDate && !albumObj.releaseDate) albumObj.releaseDate = String(t.releaseDate).trim();
+      if (t.artworkUrl && !albumObj.artworkUrl) albumObj.artworkUrl = String(t.artworkUrl).trim();
 
       if (!albumObj.discs[cdNo]) {
         albumObj.discs[cdNo] = {
@@ -1804,8 +1906,8 @@ class Store {
       albumObj.discs[cdNo].tracks.push({
         cdNumber: cdNo,
         trackNumber: Number(t.trackNumber) || 1,
-        trackName: t.trackName || '無題',
-        trackArtist: t.trackArtist || artist
+        trackName: String(t.trackName || '無題').trim(),
+        trackArtist: String(t.trackArtist || artist).trim()
       });
 
       albumObj.totalTracks++;
@@ -1829,9 +1931,9 @@ class Store {
    * @returns {string[]}
    */
   getFilteredArtists() {
-    const filter = this.state.artistFilter.trim().toLowerCase();
+    const filter = String(this.state.artistFilter || '').trim().toLowerCase();
     if (!filter) return this.state.artistList;
-    return this.state.artistList.filter(artist => artist.toLowerCase().includes(filter));
+    return this.state.artistList.filter(artist => String(artist).toLowerCase().includes(filter));
   }
 
   /**
@@ -1844,7 +1946,6 @@ class Store {
     }
     const albumsObj = this.state.musicCatalog[this.state.selectedArtist].albums;
     return Object.values(albumsObj).sort((a, b) => {
-      // リリース日降順、無ければアルバム名昇順
       if (a.releaseDate && b.releaseDate) return b.releaseDate.localeCompare(a.releaseDate);
       return a.albumName.localeCompare(b.albumName, 'ja');
     });
@@ -1862,21 +1963,21 @@ class Store {
   }
 
   /**
-   * 全体クイック横断検索
+   * 全体クイック横断検索（型安全キャスト仕様）
    * @param {string} query 
    * @returns {RawTrackRow[]}
    */
   searchAcrossAllTracks(query) {
-    const q = (query || '').trim().toLowerCase();
+    const q = String(query || '').trim().toLowerCase();
     if (!q) return [];
     return this.state.allTracks.filter((t) => {
-      return (
-        (t.trackName && t.trackName.toLowerCase().includes(q)) ||
-        (t.albumName && t.albumName.toLowerCase().includes(q)) ||
-        (t.albumArtist && t.albumArtist.toLowerCase().includes(q)) ||
-        (t.trackArtist && t.trackArtist.toLowerCase().includes(q)) ||
-        String(t.cdNumber) === q
-      );
+      if (!t || typeof t !== 'object') return false;
+      const tName = String(t.trackName || '').toLowerCase();
+      const aName = String(t.albumName || '').toLowerCase();
+      const aArtist = String(t.albumArtist || '').toLowerCase();
+      const tArtist = String(t.trackArtist || '').toLowerCase();
+      const cd = String(t.cdNumber || '');
+      return tName.includes(q) || aName.includes(q) || aArtist.includes(q) || tArtist.includes(q) || cd === q;
     });
   }
 }
@@ -1886,9 +1987,6 @@ class Store {
 ---
 
 ### 6.4 アプリケーションコントローラークラス: `src/ScriptsApp.html`（`App`）
-
-#### 【責務】
-`Store`, `ApiClient`, `Utils` を協調させ、DOMイベントのバインド、画面描画、モーダル制御、画面ステップ遷移、およびAPI連携を実行する。
 
 #### 【完全な実装コード仕様】
 
@@ -1963,7 +2061,7 @@ class App {
       });
     }
 
-    // ナビゲーション戻るボタン
+    // ナビゲーション戻るボタン (WCAG 44px対応)
     const btnBackToArtists = document.getElementById('btn-back-to-artists');
     if (btnBackToArtists) {
       btnBackToArtists.addEventListener('click', () => this.setMobileStep(1));
@@ -2009,6 +2107,15 @@ class App {
     const btnCancelManual = document.getElementById('btn-cancel-manual-modal');
     if (btnCancelManual) btnCancelManual.addEventListener('click', () => this.closeManualModal());
 
+    // 手動登録フォームの submit イベント抑止 (Enterキー押下時のリロード抑止)
+    const formManual = document.getElementById('form-manual-track');
+    if (formManual) {
+      formManual.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.submitManualTrack();
+      });
+    }
+
     // アルバム詳細内の「+ 曲追加」ボタン
     const btnAddTrackToAlbum = document.getElementById('btn-add-track-to-album');
     if (btnAddTrackToAlbum) {
@@ -2029,7 +2136,7 @@ class App {
       });
     }
 
-    // 手動登録 送信
+    // 手動登録 送信ボタンクリック
     const btnSubmitManual = document.getElementById('btn-submit-manual-track');
     if (btnSubmitManual) btnSubmitManual.addEventListener('click', () => this.submitManualTrack());
 
@@ -2141,7 +2248,6 @@ class App {
 
     container.innerHTML = html;
 
-    // クリックイベント
     container.querySelectorAll('.artist-item').forEach((el) => {
       el.addEventListener('click', () => {
         const artist = el.getAttribute('data-artist');
@@ -2163,7 +2269,6 @@ class App {
     this.renderAlbumList();
     this.renderTrackDetail();
 
-    // スマホ時は STEP 2 へ画面遷移
     if (window.innerWidth < 768) {
       this.setMobileStep(2);
     }
@@ -2250,7 +2355,6 @@ class App {
     this.renderAlbumList();
     this.renderTrackDetail();
 
-    // スマホ時は STEP 3 へ画面遷移
     if (window.innerWidth < 768) {
       this.setMobileStep(3);
     }
@@ -2398,7 +2502,6 @@ class App {
       return;
     }
 
-    // 最初に見つかった曲のアーティストとアルバムへジャンプ
     const firstMatch = matchedTracks[0];
     this.store.state.selectedArtist = firstMatch.albumArtist;
     this.store.state.selectedAlbum = firstMatch.albumName;
@@ -2581,7 +2684,6 @@ class App {
       this.closeItunesModal();
       await this.loadInitialData();
 
-      // 追加したアルバムを選択
       this.store.state.selectedArtist = detail.albumArtist;
       this.store.state.selectedAlbum = detail.albumName;
       this.renderAll();
@@ -2633,7 +2735,7 @@ class App {
   }
 
   /**
-   * 手動楽曲登録送信
+   * 手動楽曲登録送信 (ボタン物理無効化 & 二重送信完全防止)
    */
   async submitManualTrack() {
     const form = document.getElementById('form-manual-track');
@@ -2647,8 +2749,11 @@ class App {
 
     const btnText = document.getElementById('manual-submit-btn-text');
     const spinner = document.getElementById('manual-submit-spinner');
+    const submitBtn = document.getElementById('btn-submit-manual-track');
+
     if (btnText) btnText.classList.add('hidden');
     if (spinner) spinner.classList.remove('hidden');
+    if (submitBtn) submitBtn.disabled = true; // 物理無効化
 
     const cdNumber = Number(document.getElementById('manual-cd-number').value) || 1;
     const albumArtist = document.getElementById('manual-album-artist').value.trim();
@@ -2681,7 +2786,6 @@ class App {
       this.renderAll();
 
       if (continuous) {
-        // 次の曲番号へインクリメントしてフォーカス
         const trackNoEl = document.getElementById('manual-track-number');
         const trackNameEl = document.getElementById('manual-track-name');
         if (trackNoEl) trackNoEl.value = trackNumber + 1;
@@ -2700,6 +2804,7 @@ class App {
       this.store.state.isSaving = false;
       if (btnText) btnText.classList.remove('hidden');
       if (spinner) spinner.classList.add('hidden');
+      if (submitBtn) submitBtn.disabled = false;
     }
   }
 
@@ -2741,7 +2846,7 @@ class App {
 | `DRIVE_FOLDER_ERROR` | `DriveService.js` | 指定のGoogle Driveフォルダにアクセスできません。 |
 | `ITUNES_API_NETWORK_ERROR` | `ItunesService.js` | Apple iTunes API との通信に失敗しました (HTTP Status!=200)。 |
 | `ALBUM_NOT_FOUND` | `ItunesService.js` | 指定されたアルバム情報が見つかりません。 |
-| `VALIDATION_FAILED` | `MusicService.js` | 入力パラメータが不正です（必須項目欠落、数値範囲不正等）。 |
+| `VALIDATION_FAILED` | `MusicService.js` | 入力パラメータが不正です（必須項目欠落、小数の入力、文字数255文字超過、不正オブジェクト混入等）。 |
 | `DATA_FETCH_ERROR` | `Code.js` | データ取得処理中に予期せぬ例外が発生しました。 |
 | `BATCH_SAVE_ERROR` | `Code.js` | 一括登録処理中に予期せぬ例外が発生しました。 |
 | `SINGLE_SAVE_ERROR` | `Code.js` | 手動登録処理中に予期せぬ例外が発生しました。 |
@@ -2767,7 +2872,7 @@ class App {
 ### 8.2 Google Drive 永続URLとWeb表示仕様
 - 保存されたファイルは `DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW` を設定。
 - Web上で直接 `<img>` タグの `src` として参照可能な永続URL形式:
-  `https://drive.google.com/uc?export=view&id={fileId}`
+  `https://drive.google.com/uc?export=view&id=${fileId}`
 - iTunes画像のダウンロード失敗時は、アルバム登録全体をエラーにせず、画像URLを空文字として処理を継続（耐障害性設計）。
 
 ### 8.3 スプレッドシート バッチ書き込み & クライアントキャッシュ性能最適化
@@ -2775,13 +2880,19 @@ class App {
 - **インメモリキャッシュ**: アプリ起動時に取得したフラット配列を `Store` 内でツリー化。ペインの切り替えやアーティスト絞り込みはブラウザ内メモリ操作のみで完結し、応答速度は100ms未満を維持。
 
 ### 8.4 スマホUI/UX・44pxタッチターゲット・テンキー入力制御
-- **タップターゲット**: アーティスト一覧行、アルバムカード、トラック行、戻るボタンのタップ領域を最低 44px 確保。
+- **44px最小タッチターゲット（WCAG 2.1 AAA準拠）**:
+  - モバイル戻るボタン（`#btn-back-to-artists`, `#btn-back-to-albums`）には `min-h-[44px] min-w-[44px] px-3 py-2.5` を指定。
+  - アーティスト行、アルバムカード、トラック行、モーダル各ボタンのタップ領域もすべて 44px 以上を保証。
 - **横スクロール完全排除**: ディスク別テーブルはカード型の縦積みレイアウトとし、モバイル画面幅（375px〜）でも横スクロールを発生させない。
 - **テンキー最適化**: 手動登録モーダルの「CD番号」「トラック番号」入力欄には `inputmode="numeric" pattern="[0-9]*"` を指定し、スマホの数値テンキーを自動展開。
 
+### 8.5 スプレッドシート / CSV式インジェクション（Formula Injection）完全防護仕様
+- 悪意あるユーザーまたは外部APIから、`=cmd|' /C calc'!A0`, `=SUM(1,2)`, `@SUM()`, `+10-3`, `-5+2` 等の数式実行記号で始まる文字列が入力された場合、GoogleスプレッドシートやCSV出力時に数式として誤評価される重大なセキュリティリスクが存在する。
+- 本システムでは `SheetService` の内部メソッド `escapeFormula_(val)` を通し、先頭文字が `=`, `@`, `+`, `-` の場合は先頭にシングルクォート `'` を付加して書き込むことで、スプレッドシート上で確実にプレーン文字列として格納・無害化する。
+
 ---
 
-## 9. プログラマー向け実装チェックリスト＆単体・結合テストケース
+## 9. プログラマー向け実装チェックリスト＆単体・結合・レッドチーム破壊テストケース
 
 ### 9.1 実装チェックリスト
 
@@ -2789,26 +2900,26 @@ class App {
 | :--- | :--- | :--- |
 | `src/appsscript.json` | V8、Asia/Tokyo、および3つのOAuthスコープが正しく記述されているか | [ ] |
 | `src/Config.js` | プロパティ未設定時にわかりやすい例外が送出されるか | [ ] |
-| `src/SheetService.js` | ヘッダーの自動初期化・固定・装飾、およびバッチ一括書き込みが実装されているか | [ ] |
-| `src/DriveService.js` | ファイル名サニタイズ、公開共有設定、Web表示URLの生成が網羅されているか | [ ] |
+| `src/SheetService.js` | 式インジェクション（先頭 `=`, `@`, `+`, `-`）対策 `escapeFormula_` が適用されているか | [ ] |
+| `src/DriveService.js` | パストラバーサル記号 `..` およびヌル文字 `\0` が完全サニタイズされているか | [ ] |
 | `src/ItunesService.js` | 500x500置換、および `discNumber` からのCD番号マッピングが正確か | [ ] |
-| `src/MusicService.js` | 各サービスを調停し、トランザクション整合性を保って処理しているか | [ ] |
+| `src/MusicService.js` | `keyword` キャスト、CD/トラック番号の整数・有限数検証、文字長<=255検証、tracks反復検査が実装されているか | [ ] |
 | `src/Code.js` | 全ての `api*` 関数が例外をキャッチし `ApiResponse` 形式で返却しているか | [ ] |
 | `src/index.html` | includeの呼び出し順序が依存関係通りになっているか | [ ] |
 | `src/Styles.html` | スクロールバー装飾、タップハイライト無効化、アニメーションが定義されているか | [ ] |
 | `src/Navbar.html` | 全体クイック検索、各種登録ボタンが配置されているか | [ ] |
 | `src/ArtistList.html` | 44pxターゲット、絞り込み、件数バッジが動作するか | [ ] |
-| `src/AlbumList.html` | 正方形カード、スマホ戻るバーが配置されているか | [ ] |
-| `src/TrackDetail.html` | 大判アート、Disc別セクション、横スクロールなしリストが描画されるか | [ ] |
+| `src/AlbumList.html` | 正方形カード、スマホ戻るバーが 44px 最小タッチターゲットを満たしているか | [ ] |
+| `src/TrackDetail.html` | 大判アート、Disc別セクション、スマホ戻るバーが 44px 最小ターゲットを満たしているか | [ ] |
 | `src/ItunesModal.html` | 候補検索、Lookupプレビュー、一括保存が連携しているか | [ ] |
-| `src/ManualModal.html` | テンキー入力、連続登録アシストが動作するか | [ ] |
+| `src/ManualModal.html` | テンキー入力、Enter送信抑止（`onsubmit="event.preventDefault();"`）、ボタン物理無効化が動作するか | [ ] |
 | `src/ImageModal.html` | 500x500画像が大きく表示され、ESCキーで閉じられるか | [ ] |
 | `src/ScriptsUtils.html` | `escapeHtml` がすべての特殊記号をエスケープしているか | [ ] |
 | `src/ScriptsApiClient.html` | `google.script.run` のPromise化とエラー検出が正確か | [ ] |
-| `src/ScriptsState.html` | `MusicCatalog` ツリー生成とソートが正しく行われているか | [ ] |
-| `src/ScriptsApp.html` | 全イベントがバインドされ、初期ロードから画面更新まで破綻なく連動するか | [ ] |
+| `src/ScriptsState.html` | `Store.buildCatalog` の不正要素ガード、および `searchAcrossAllTracks` の型安全検索が動作するか | [ ] |
+| `src/ScriptsApp.html` | 手動送信時のボタン無効化（`disabled = true`）、および全イベントが正しくバインドされているか | [ ] |
 
-### 9.2 単体・結合テストケース
+### 9.2 単体・結合・レッドチーム破壊テストケース
 
 | ID | テスト分類 | 操作・検証内容 | 期待結果 |
 | :--- | :--- | :--- | :--- |
@@ -2820,3 +2931,12 @@ class App {
 | **TC-06** | スマホ遷移 | 幅 375px（iPhone等）でアーティスト→アルバム→トラックとタップ | 各ステップで1画面ずつ遷移し、「< 戻る」ボタンで前画面へ復帰できる。 |
 | **TC-07** | 全体クイック検索 | ヘッダー検索に曲名の一部を入力 | 一致する楽曲のアルバム詳細画面へ自動的にジャンプし、該当トラックを確認できる。 |
 | **TC-08** | 二重送信防止 | 一括登録ボタンをダブルクリック・連打 | 初回クリックで即座にボタンが無効化・スピナー表示となり、重複レコードは登録されない。 |
+| **TC-09** | 小数注入拒絶 | 手動登録で CD番号に `1.5`、トラック番号に `2.5` を入力して送信 | バックエンドで `VALIDATION_FAILED` 例外がスローされ、保存が拒絶される。 |
+| **TC-10** | 長大文字数制限 | 曲名・アルバム名等に 10,000文字の超長大文字列を注入して送信 | バックエンドで `VALIDATION_FAILED` 例外がスローされ、最大255文字以内のエラーが返却される。 |
+| **TC-11** | tracks配列破壊 | `saveAlbumFromItunes` の `tracks` に `[null]`, `[{}]`, `["invalid"]` を注入 | `VALIDATION_FAILED` 例外がスローされ、サーバー側TypeErrorクラッシュを起こさない。 |
+| **TC-12** | キーワード型違い | `searchItunesAlbums(12345)` や `searchItunesAlbums({})` を呼び出す | 安全に文字列キャストされ、`keyword.trim is not a function` のTypeErrorを起こさない。 |
+| **TC-13** | パストラバーサル・ヌル | `DriveService.sanitizeFileName("../../etc/passwd\0")` を実行 | `..` および `\0` が完全除去され、安全なファイル名 `etc_passwd` にサニタイズされる。 |
+| **TC-14** | 式インジェクション | 曲名に `=cmd|' /C calc'!A0` や `=SUM(1,2)` を入力して登録 | 先頭にシングルクォート `'` が付与され、スプレッドシート上で安全なプレーンテキストとして格納される。 |
+| **TC-15** | 数値曲名の横断検索 | 曲名が数値（`1999`, `21`）のトラックが存在する状態で横断検索を実行 | `toLowerCase is not a function` エラーを起こさず、正常に検索・ヒットする。 |
+| **TC-16** | 44pxタッチターゲット | モバイル戻るボタンの計算高さを検証 | `min-h-[44px]` により 44px 以上のタップ可能領域が常に確保されている。 |
+| **TC-17** | Enterキー送信抑止 | 手動登録フォームの各入力欄で Enter キーを押下 | フォームのデフォルト送信（ページリロード）が発生せず、安全に登録処理が呼び出される。 |
