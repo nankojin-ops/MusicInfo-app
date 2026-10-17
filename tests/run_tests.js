@@ -228,6 +228,201 @@ assert(searchResults.length === 1 && searchResults[0].trackName === '天体観�
 const searchByCd = store.searchAcrossAllTracks('2');
 assert(searchByCd.length === 1 && searchByCd[0].cdNumber === 2, 'CD番号(2)で横断検索');
 
+// 6.2. アルバム編集に関する単体テスト (Store.updateAlbumInCatalog)
+console.log('\n[6.2] Store.updateAlbumInCatalog (差分同期＆改名自動追従) のテスト');
+store.state.selectedArtist = 'Official髭男dism';
+store.state.selectedAlbum = 'Editorial';
+
+store.updateAlbumInCatalog(
+  { originalAlbumArtist: 'Official髭男dism', originalAlbumName: 'Editorial' },
+  { albumArtist: 'Official髭男dism (Renamed)', albumName: 'Editorial Deluxe', releaseDate: '2021-08-20', artworkUrl: 'https://example.com/editorial_deluxe.jpg' },
+  [
+    { cdNumber: 1, trackNumber: 1, trackName: 'Editorial (Intro) 2026', trackArtist: 'Official髭男dism (Renamed)' },
+    { cdNumber: 1, trackNumber: 2, trackName: 'Cry Baby', trackArtist: 'Official髭男dism (Renamed)' },
+    { cdNumber: 1, trackNumber: 3, trackName: 'New Bonus Track', trackArtist: 'Official髭男dism (Renamed)' }
+  ]
+);
+
+assert(store.state.selectedArtist === 'Official髭男dism (Renamed)', '改名後のアーティスト選択状態追従');
+assert(store.state.selectedAlbum === 'Editorial Deluxe', '改名後のアルバム選択状態追従');
+assert(!store.state.musicCatalog['Official髭男dism']?.albums['Editorial'], '旧アルバムがカタログから消去されている');
+const updatedAlbum = store.state.musicCatalog['Official髭男dism (Renamed)']?.albums['Editorial Deluxe'];
+assert(updatedAlbum && updatedAlbum.totalTracks === 3, '新アルバムに3曲が格納されている');
+assert(updatedAlbum.discs[1].tracks[2].trackName === 'New Bonus Track', '追加トラックが正しく反映されている');
+
+// 6.3. MusicService.updateAlbum バリデーションテスト
+console.log('\n[6.3] MusicService.updateAlbum 二重バリデーションテスト');
+const SheetService = require('../src/SheetService');
+const mockSheetService = {
+  updateAlbumBatch: (targetKey, newAlbumMeta, newTracks) => ({
+    updatedRowCount: newTracks.length,
+    totalRowCount: newTracks.length,
+    previousRowCount: 2,
+    albumName: newAlbumMeta.albumName,
+    albumArtist: newAlbumMeta.albumArtist
+  })
+};
+const musicServiceWithMock = new MusicService(config, mockSheetService, driveService, itunesService);
+
+// 正常系
+const validResult = musicServiceWithMock.updateAlbum({
+  targetKey: { originalAlbumArtist: 'Artist', originalAlbumName: 'Album' },
+  album: { albumArtist: 'New Artist', albumName: 'New Album' },
+  tracks: [{ cdNumber: 1, trackNumber: 1, trackName: 'Track 1' }]
+});
+assert(validResult.updatedRowCount === 1, '正常なアルバム編集処理の成功');
+
+// 異常系: targetKey欠落
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({ album: { albumArtist: 'A', albumName: 'B' }, tracks: [{ cdNumber: 1, trackNumber: 1, trackName: 'T' }] }),
+  'VALIDATION_FAILED',
+  'targetKey欠落での例外'
+);
+// 異常系: targetKey.originalAlbumArtist空文字
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({ targetKey: { originalAlbumArtist: '', originalAlbumName: 'B' }, album: { albumArtist: 'A', albumName: 'B' }, tracks: [{ cdNumber: 1, trackNumber: 1, trackName: 'T' }] }),
+  'VALIDATION_FAILED',
+  'targetKey.originalAlbumArtist空文字での例外'
+);
+// 異常系: album.albumName欠落
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({ targetKey: { originalAlbumArtist: 'A', originalAlbumName: 'B' }, album: { albumArtist: 'A', albumName: '' }, tracks: [{ cdNumber: 1, trackNumber: 1, trackName: 'T' }] }),
+  'VALIDATION_FAILED',
+  'album.albumName欠落での例外'
+);
+// 異常系: album.albumName 255文字超過
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({ targetKey: { originalAlbumArtist: 'A', originalAlbumName: 'B' }, album: { albumArtist: 'A', albumName: 'x'.repeat(256) }, tracks: [{ cdNumber: 1, trackNumber: 1, trackName: 'T' }] }),
+  'VALIDATION_FAILED',
+  'album.albumName 255文字超過での例外'
+);
+// 異常系: tracks空配列
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({ targetKey: { originalAlbumArtist: 'A', originalAlbumName: 'B' }, album: { albumArtist: 'A', albumName: 'B' }, tracks: [] }),
+  'VALIDATION_FAILED',
+  'tracks空配列での全削除抑止例外'
+);
+// 異常系: CD番号に小数注入
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({ targetKey: { originalAlbumArtist: 'A', originalAlbumName: 'B' }, album: { albumArtist: 'A', albumName: 'B' }, tracks: [{ cdNumber: 1.5, trackNumber: 1, trackName: 'T' }] }),
+  'VALIDATION_FAILED',
+  'CD番号に小数注入時の例外'
+);
+// 異常系: トラック番号に0注入
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({ targetKey: { originalAlbumArtist: 'A', originalAlbumName: 'B' }, album: { albumArtist: 'A', albumName: 'B' }, tracks: [{ cdNumber: 1, trackNumber: 0, trackName: 'T' }] }),
+  'VALIDATION_FAILED',
+  'トラック番号に0注入時の例外'
+);
+// 異常系: 同一CD番号内でのトラック番号重複
+assertThrows(
+  () => musicServiceWithMock.updateAlbum({
+    targetKey: { originalAlbumArtist: 'A', originalAlbumName: 'B' },
+    album: { albumArtist: 'A', albumName: 'B' },
+    tracks: [
+      { cdNumber: 1, trackNumber: 1, trackName: 'Track 1' },
+      { cdNumber: 1, trackNumber: 1, trackName: 'Track 1 Duplicate' }
+    ]
+  }),
+  'VALIDATION_FAILED',
+  '同一CD番号内でのトラック番号重複禁止例外'
+);
+// 異なるCD番号間での同じトラック番号は許可
+const diffCdResult = musicServiceWithMock.updateAlbum({
+  targetKey: { originalAlbumArtist: 'A', originalAlbumName: 'B' },
+  album: { albumArtist: 'A', albumName: 'B' },
+  tracks: [
+    { cdNumber: 1, trackNumber: 1, trackName: 'Disc 1 Track 1' },
+    { cdNumber: 2, trackNumber: 1, trackName: 'Disc 2 Track 1' }
+  ]
+});
+assert(diffCdResult.updatedRowCount === 2, '別CD番号間での同一トラック番号(1)は許容');
+
+// 6.4. SheetService.updateAlbumBatch 排他ロック & アトミック置換テスト
+console.log('\n[6.4] SheetService.updateAlbumBatch 排他ロック＆アトミック更新テスト');
+let lockReleased = false;
+global.LockService = {
+  getScriptLock: () => ({
+    tryLock: (timeout) => true,
+    releaseLock: () => { lockReleased = true; }
+  })
+};
+
+let mockSheetData = [
+  ['CD番号', 'アルバムアーティスト名', 'アルバム名', 'アーティスト名', 'トラック番号', 'トラック名', 'リリース日', 'アルバムアートURL'],
+  [1, 'Original Artist', 'Target Album', 'Original Artist', 1, 'Old Track 1', '2020-01-01', ''],
+  [1, 'Original Artist', 'Target Album', 'Original Artist', 2, 'Old Track 2', '2020-01-01', ''],
+  [1, 'Other Artist', 'Other Album', 'Other Artist', 1, 'Other Track', '2020-01-01', '']
+];
+let cleared = false;
+let setValuesCalledWith = null;
+
+const mockSheetObj = {
+  getLastRow: () => mockSheetData.length,
+  getRange: (row, col, numRows, numCols) => ({
+    getValues: () => mockSheetData.slice(row - 1, row - 1 + numRows),
+    clearContent: () => { cleared = true; },
+    setValues: (values) => { setValuesCalledWith = values; }
+  })
+};
+
+global.SpreadsheetApp = {
+  openById: () => ({
+    getSheetByName: () => mockSheetObj
+  }),
+  flush: () => {}
+};
+
+const realSheetService = new SheetService(config);
+
+const editResult = realSheetService.updateAlbumBatch(
+  { originalAlbumArtist: 'Original Artist', originalAlbumName: 'Target Album' },
+  { albumArtist: 'Renamed Artist', albumName: 'Renamed Album', releaseDate: '2026-10-17', artworkUrl: 'https://example.com/art.jpg' },
+  [
+    { cdNumber: 1, trackNumber: 1, trackName: '=SUM(1,2)', trackArtist: 'Renamed Artist' }
+  ]
+);
+
+assert(lockReleased === true, '排他ロックが確実に releaseLock された');
+assert(cleared === true, '更新前に clearContent() が実行された');
+assert(editResult.updatedRowCount === 1, '更新新トラック数 1');
+assert(editResult.previousRowCount === 2, '旧トラック削除数 2');
+assert(editResult.totalRowCount === 2, '更新後全件数 2 (他アルバム1行 + 新トラック1行)');
+
+// 式インジェクション サニタイズの検証
+assert(setValuesCalledWith !== null, 'setValues が呼び出された');
+const injectedTrackRow = setValuesCalledWith.find(r => r[1] === 'Renamed Artist');
+assert(injectedTrackRow !== undefined, '新アルバム行が存在する');
+assert(injectedTrackRow[5] === "'=SUM(1,2)", '曲名の式インジェクションが先頭シングルクォートで無害化された');
+
+// 存在しないアルバム更新時の NOT_FOUND 例外
+assertThrows(
+  () => realSheetService.updateAlbumBatch(
+    { originalAlbumArtist: 'NonExistent', originalAlbumName: 'NonExistent' },
+    { albumArtist: 'A', albumName: 'B' },
+    [{ cdNumber: 1, trackNumber: 1, trackName: 'T' }]
+  ),
+  'NOT_FOUND',
+  '存在しないアルバムの更新要求で NOT_FOUND 例外'
+);
+
+// ロック取得失敗時の LOCK_TIMEOUT 例外
+global.LockService = {
+  getScriptLock: () => ({
+    tryLock: (timeout) => false,
+    releaseLock: () => {}
+  })
+};
+assertThrows(
+  () => realSheetService.updateAlbumBatch(
+    { originalAlbumArtist: 'Original Artist', originalAlbumName: 'Target Album' },
+    { albumArtist: 'A', albumName: 'B' },
+    [{ cdNumber: 1, trackNumber: 1, trackName: 'T' }]
+  ),
+  'LOCK_TIMEOUT',
+  'ロック取得タイムアウト時の LOCK_TIMEOUT 例外'
+);
+
 // 7. 全HTMLファイルのGAS include構文およびプレースホルダーなし検証
 console.log('\n[7] 全ファイルのプレースホルダーなし & 構文チェック');
 const srcDir = path.join(__dirname, '../src');

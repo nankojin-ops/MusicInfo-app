@@ -160,6 +160,26 @@ function apiSaveTrackSingle(track) {
   }
 }
 
+/**
+ * 【RPC】アルバムデータ一括更新API
+ * @param {AlbumEditPayload} payload 
+ * @returns {ApiResponse<AlbumEditResult>}
+ */
+function apiUpdateAlbumBatch(payload) {
+  try {
+    const data = getMusicService().updateAlbum(payload);
+    return { success: true, data: data, timestamp: new Date().toISOString() };
+  } catch (err) {
+    console.error('apiUpdateAlbumBatch エラー:', err);
+    return {
+      success: false,
+      error: err.message,
+      code: err.code || 'ALBUM_UPDATE_ERROR',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     doGet,
@@ -169,6 +189,7 @@ if (typeof module !== 'undefined' && module.exports) {
     apiSearchItunes,
     apiLookupItunesAlbum,
     apiSaveAlbumBatch,
-    apiSaveTrackSingle
+    apiSaveTrackSingle,
+    apiUpdateAlbumBatch
   };
 }

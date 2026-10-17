@@ -280,12 +280,22 @@
       </div>
     </div>
 
-    <!-- 1曲手動追加ボタン -->
-    <div class="flex-shrink-0 hidden sm:block">
-      <button id="btn-add-track-to-album" class="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition" title="このアルバムに曲を追加">
+    <!-- アルバム操作ボタングループ（編集 & 1曲追加） -->
+    <div class="flex-shrink-0 flex items-center gap-1 sm:gap-1.5">
+      <!-- このアルバムを編集ボタン (WCAG 44pxタップ領域保証) -->
+      <button id="btn-edit-album" class="min-h-[44px] min-w-[44px] p-2 text-slate-300 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムの情報を編集">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+        </svg>
+        <span class="text-xs font-medium hidden sm:inline">編集</span>
+      </button>
+
+      <!-- 1曲手動追加ボタン (WCAG 44pxタップ領域保証) -->
+      <button id="btn-add-track-to-album" class="min-h-[44px] min-w-[44px] p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムに曲を追加">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
         </svg>
+        <span class="text-xs font-medium hidden sm:inline">曲追加</span>
       </button>
     </div>
   </div>
@@ -501,6 +511,189 @@
         <span id="manual-submit-btn-text">登録する</span>
         <div id="manual-submit-spinner" class="hidden w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
       </button>
+    </div>
+
+  </div>
+</div>
+
+  <div id="modal-edit-album" class="hidden fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-slate-950/85 backdrop-blur-sm">
+  <div class="w-full h-full md:h-[90vh] md:max-w-4xl bg-slate-900 border-0 md:border md:border-slate-800 md:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-modalScale">
+
+    <!-- モーダルヘッダー (PC / スマホ共通・固定バー) -->
+    <div class="px-4 py-3 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
+      <div class="flex items-center gap-2">
+        <button id="btn-close-edit-album" type="button" class="min-h-[44px] min-w-[44px] text-slate-400 hover:text-slate-200 p-2 -ml-2 rounded-lg hover:bg-slate-800 transition flex items-center justify-center" title="閉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 rounded bg-indigo-600 flex items-center justify-center text-white">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+            </svg>
+          </div>
+          <h3 class="text-sm md:text-base font-bold text-slate-100">アルバム情報の編集</h3>
+        </div>
+      </div>
+
+      <!-- スマホ用 上部保存ボタン (親指タップ最適化・44px確保) -->
+      <div class="md:hidden">
+        <button id="btn-mobile-submit-edit-album" type="button" class="min-h-[44px] min-w-[44px] px-3 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg shadow transition flex items-center gap-1.5">
+          <span class="edit-album-submit-btn-text">保存</span>
+          <div class="edit-album-submit-spinner hidden w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+        </button>
+      </div>
+    </div>
+
+    <!-- フォームスクロール本文エリア (Enter送信抑止) -->
+    <form id="form-edit-album" onsubmit="event.preventDefault();" class="flex-1 overflow-y-auto p-3 md:p-5 space-y-5">
+
+      <!-- セクション1: アルバム共通メタ情報 -->
+      <div class="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3.5 md:p-4 space-y-3.5 shadow-sm">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800/80">
+          <h4 class="text-xs md:text-sm font-bold text-slate-200 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+            アルバム基本情報
+          </h4>
+          <span class="text-[11px] text-slate-400 font-mono">※変更時は全収録曲行のメタ情報が一括更新されます</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+          <!-- アルバム名 -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">
+              アルバム名 <span class="text-rose-500">*</span>
+            </label>
+            <input type="text" id="edit-album-name" required maxlength="255" placeholder="例: First Love"
+              class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+          </div>
+
+          <!-- アルバムアーティスト名 -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">
+              アルバムアーティスト名 <span class="text-rose-500">*</span>
+            </label>
+            <input type="text" id="edit-album-artist" required maxlength="255" placeholder="例: 宇多田ヒカル"
+              class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 items-center">
+          <!-- リリース日 -->
+          <div class="md:col-span-4">
+            <label class="block text-xs font-semibold text-slate-300 mb-1">
+              リリース日 (任意)
+            </label>
+            <input type="date" id="edit-album-release-date"
+              class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-100 focus:outline-none focus:border-indigo-500 transition">
+          </div>
+
+          <!-- アルバムアートURL & リアルタイムプレビュー -->
+          <div class="md:col-span-8 flex gap-3 items-center">
+            <div class="flex-1 min-w-0">
+              <label class="block text-xs font-semibold text-slate-300 mb-1">
+                アルバムアートURL (任意)
+              </label>
+              <input type="url" id="edit-album-artwork-url" placeholder="https://drive.google.com/uc?id=... または画像URL"
+                class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition">
+            </div>
+            <!-- サムネイルプレビュー (80x80) -->
+            <div class="flex-shrink-0 pt-5">
+              <img id="edit-album-art-preview" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='1.5'><rect width='24' height='24' fill='%231e293b'/><circle cx='12' cy='12' r='4'/></svg>" alt="preview"
+                class="w-12 h-12 md:w-14 md:h-14 rounded-lg object-cover bg-slate-800 border border-slate-700/80 shadow">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- セクション2: 収録曲インライン編集エリア -->
+      <div class="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3.5 md:p-4 space-y-3.5 shadow-sm">
+        
+        <!-- 収録曲ツールバー -->
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+          <div class="flex items-center gap-2">
+            <h4 class="text-xs md:text-sm font-bold text-slate-200 flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+              収録曲一覧
+            </h4>
+            <span id="edit-tracks-count-badge" class="px-2 py-0.5 bg-slate-800 text-slate-400 text-xs rounded-full font-mono">
+              0曲
+            </span>
+          </div>
+
+          <div class="flex items-center gap-1.5 md:gap-2">
+            <!-- 番号連番採番ボタン (44px確保) -->
+            <button id="btn-renumber-edit-tracks" type="button" class="min-h-[44px] inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:bg-slate-800/80 border border-slate-700/80 rounded-lg transition active:scale-95" title="CD番号ごとにトラック番号を 1, 2, 3... と連番で再採番">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>
+              </svg>
+              <span>番号自動連番採番</span>
+            </button>
+
+            <!-- トラック追加ボタン (44px確保) -->
+            <button id="btn-add-edit-track" type="button" class="min-h-[44px] inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg transition active:scale-95">
+              <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+              </svg>
+              <span>+ トラック追加</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- PC向けテーブル表示ヘッダー (md以上) -->
+        <div class="hidden md:block overflow-hidden rounded-lg border border-slate-800">
+          <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-900 text-slate-400 uppercase text-[11px] font-mono border-b border-slate-800">
+              <tr>
+                <th class="py-2 px-2 w-16 text-center">CD</th>
+                <th class="py-2 px-2 w-16 text-center">No</th>
+                <th class="py-2 px-3">曲名 <span class="text-rose-500">*</span></th>
+                <th class="py-2 px-3">トラックアーティスト (省略時: アルバムアーティスト)</th>
+                <th class="py-2 px-2 w-12 text-center">削除</th>
+              </tr>
+            </thead>
+            <tbody id="edit-tracks-table-body" class="divide-y divide-slate-800/50 bg-slate-950/40">
+              <!-- 動的生成: PCテーブル行 -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- スマホ向けカードリスト表示 (md未満) -->
+        <div id="edit-tracks-mobile-container" class="md:hidden space-y-2.5">
+          <!-- 動的生成: スマホ編集カード -->
+        </div>
+
+        <!-- 0件警告プレースホルダー (通常は最低1件を維持) -->
+        <div id="edit-tracks-empty-warning" class="hidden p-4 text-center text-xs text-rose-400 bg-rose-950/30 border border-rose-900 rounded-lg">
+          収録曲が0曲です。「+ トラック追加」から最低1曲追加してください。
+        </div>
+
+      </div>
+
+    </form>
+
+    <!-- モーダルフッター (PC表示時固定・フッターアクション) -->
+    <div class="px-4 py-3 border-t border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
+      <div class="hidden md:flex items-center gap-2 text-xs text-slate-400">
+        <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span>同一CD番号内でトラック番号が重複していないか確認して保存してください</span>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 w-full md:w-auto">
+        <!-- キャンセルボタン (44px確保) -->
+        <button id="btn-cancel-edit-album" type="button" class="min-h-[44px] px-4 py-2 text-xs text-slate-400 hover:text-slate-200 border border-slate-800 hover:bg-slate-800 rounded-lg transition active:scale-95">
+          キャンセル
+        </button>
+
+        <!-- 変更を保存ボタン (二重送信防止・物理無効化・44px確保) -->
+        <button id="btn-submit-edit-album" type="button" class="min-h-[44px] px-5 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg shadow-md transition active:scale-95 flex items-center gap-1.5">
+          <span class="edit-album-submit-btn-text">変更を保存</span>
+          <div class="edit-album-submit-spinner hidden w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+        </button>
+      </div>
     </div>
 
   </div>
@@ -797,6 +990,15 @@ class ApiClient {
   saveTrackSingle(track) {
     return this.callGAS('apiSaveTrackSingle', track);
   }
+
+  
+
+
+
+
+  updateAlbumBatch(payload) {
+    return this.callGAS('apiUpdateAlbumBatch', payload);
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -978,6 +1180,45 @@ class Store {
       );
     });
   }
+
+  
+
+
+
+
+
+  updateAlbumInCatalog(targetKey, newAlbumMeta, newTracks) {
+    const origArtist = String(targetKey.originalAlbumArtist || '').trim();
+    const origAlbum = String(targetKey.originalAlbumName || '').trim();
+
+    
+    const retainedTracks = this.state.allTracks.filter(t => {
+      if (!t || typeof t !== 'object') return false;
+      const tArtist = String(t.albumArtist || '').trim();
+      const tAlbum = String(t.albumName || '').trim();
+      return !(tArtist === origArtist && tAlbum === origAlbum);
+    });
+
+    
+    const updatedRows = newTracks.map(t => ({
+      cdNumber: Number(t.cdNumber) || 1,
+      albumArtist: String(newAlbumMeta.albumArtist).trim(),
+      albumName: String(newAlbumMeta.albumName).trim(),
+      trackArtist: String(t.trackArtist || newAlbumMeta.albumArtist).trim(),
+      trackNumber: Number(t.trackNumber) || 1,
+      trackName: String(t.trackName).trim(),
+      releaseDate: newAlbumMeta.releaseDate ? String(newAlbumMeta.releaseDate).trim() : '',
+      artworkUrl: newAlbumMeta.artworkUrl ? String(newAlbumMeta.artworkUrl).trim() : ''
+    }));
+
+    
+    this.state.allTracks = retainedTracks.concat(updatedRows);
+    this.buildCatalog();
+
+    
+    this.state.selectedArtist = String(newAlbumMeta.albumArtist).trim();
+    this.state.selectedAlbum = String(newAlbumMeta.albumName).trim();
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -1154,11 +1395,72 @@ class App {
     if (btnCloseImage) btnCloseImage.addEventListener('click', () => this.closeImageModal());
 
     
+    const btnEditAlbum = document.getElementById('btn-edit-album');
+    if (btnEditAlbum) {
+      btnEditAlbum.addEventListener('click', () => {
+        const album = this.store.getSelectedAlbumData();
+        if (album) {
+          this.openEditAlbumModal(album);
+        } else {
+          Utils.showToast('編集対象のアルバムが選択されていません', 'warning');
+        }
+      });
+    }
+
+    
+    const btnCloseEdit = document.getElementById('btn-close-edit-album');
+    if (btnCloseEdit) btnCloseEdit.addEventListener('click', () => this.closeEditAlbumModal());
+    const btnCancelEdit = document.getElementById('btn-cancel-edit-album');
+    if (btnCancelEdit) btnCancelEdit.addEventListener('click', () => this.closeEditAlbumModal());
+
+    
+    const editArtUrlInput = document.getElementById('edit-album-artwork-url');
+    const editArtPreview = document.getElementById('edit-album-art-preview');
+    if (editArtUrlInput && editArtPreview) {
+      editArtUrlInput.addEventListener('input', Utils.debounce((e) => {
+        const url = (e.target.value || '').trim();
+        editArtPreview.src = url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="%23475569" stroke-width="1.5"><rect width="24" height="24" fill="%231e293b"/><circle cx="12" cy="12" r="4"/></svg>';
+      }, 300));
+    }
+
+    
+    const btnAddEditTrack = document.getElementById('btn-add-edit-track');
+    if (btnAddEditTrack) {
+      btnAddEditTrack.addEventListener('click', () => this.addEditTrackRow());
+    }
+
+    
+    const btnRenumberEditTracks = document.getElementById('btn-renumber-edit-tracks');
+    if (btnRenumberEditTracks) {
+      btnRenumberEditTracks.addEventListener('click', () => this.renumberEditTracks());
+    }
+
+    
+    const formEditAlbum = document.getElementById('form-edit-album');
+    if (formEditAlbum) {
+      formEditAlbum.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.handleSaveAlbumEdit();
+      });
+    }
+
+    
+    const btnSubmitEdit = document.getElementById('btn-submit-edit-album');
+    if (btnSubmitEdit) {
+      btnSubmitEdit.addEventListener('click', () => this.handleSaveAlbumEdit());
+    }
+    const btnMobileSubmitEdit = document.getElementById('btn-mobile-submit-edit-album');
+    if (btnMobileSubmitEdit) {
+      btnMobileSubmitEdit.addEventListener('click', () => this.handleSaveAlbumEdit());
+    }
+
+    
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         this.closeItunesModal();
         this.closeManualModal();
         this.closeImageModal();
+        this.closeEditAlbumModal();
       }
     });
   }
@@ -1311,26 +1613,15 @@ class App {
       const borderClass = isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/30' : 'border-slate-800 hover:border-slate-700';
       const rawArtwork = album.artworkUrl || '';
       const resolvedArtwork = Utils.resolveArtworkUrl(rawArtwork, 400);
+      const artworkHtml = resolvedArtwork
+        ? '<img src="' + Utils.escapeHtml(resolvedArtwork) + '" alt="art" referrerpolicy="no-referrer" loading="lazy" class="w-full h-full object-cover transition duration-300 group-hover:scale-105" data-artwork="' + Utils.escapeHtml(rawArtwork) + '" data-error-step="0">'
+        : '<div class="w-full h-full flex items-center justify-center text-slate-700"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg></div>';
 
       return `
         <div class="album-card group cursor-pointer bg-slate-900 border ${borderClass} rounded-xl p-2.5 flex flex-col transition hover:bg-slate-800/80 active:scale-95 select-none"
              data-album="${Utils.escapeHtml(album.albumName)}">
           <div class="aspect-square w-full rounded-lg bg-slate-800 overflow-hidden mb-2 relative">
-            ${resolvedArtwork ? `
-              <img src="${Utils.escapeHtml(resolvedArtwork)}"
-                   alt="art"
-                   referrerpolicy="no-referrer"
-                   loading="lazy"
-                   class="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-                   data-artwork="${Utils.escapeHtml(rawArtwork)}"
-                   data-error-step="0">
-            ` : `
-              <div class="w-full h-full flex items-center justify-center text-slate-700">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path>
-                </svg>
-              </div>
-            `}
+            ${artworkHtml}
             <div class="absolute bottom-1 right-1 px-1.5 py-0.5 bg-slate-950/80 backdrop-blur rounded text-[10px] font-mono text-slate-300">
               ${album.totalTracks}曲
             </div>
@@ -1355,24 +1646,24 @@ class App {
     });
   }
 
-  /**
-   * アルバム選択時
-   * @param {string} albumName 
-   */
+  
+
+
+
   selectAlbum(albumName) {
     this.store.state.selectedAlbum = albumName;
     this.renderAlbumList();
     this.renderTrackDetail();
 
-    // スマホ時は STEP 3 へ画面遷移
+    
     if (window.innerWidth < 768) {
       this.setMobileStep(3);
     }
   }
 
-  /**
-   * STEP 3 トラック詳細・ディスク別一覧の描画
-   */
+  
+
+
   renderTrackDetail() {
     const album = this.store.getSelectedAlbumData();
     const discsContainer = document.getElementById('track-discs-container');
@@ -1390,7 +1681,7 @@ class App {
     if (emptyState) emptyState.classList.add('hidden');
     if (headerCard) headerCard.classList.remove('hidden');
 
-    // パンくず
+    
     const bcArtist = document.getElementById('breadcrumb-artist');
     const bcAlbum = document.getElementById('breadcrumb-album');
     if (bcArtist) {
@@ -1401,7 +1692,7 @@ class App {
     }
     if (bcAlbum) bcAlbum.textContent = album.albumName;
 
-    // ヘッダー情報
+    
     const hArt = document.getElementById('track-header-artwork');
     const hAlbum = document.getElementById('track-header-album-name');
     const hArtist = document.getElementById('track-header-artist-name');
@@ -1421,11 +1712,16 @@ class App {
     if (hDate) hDate.textContent = album.releaseDate ? `発売: ${Utils.formatDate(album.releaseDate)}` : '発売日未設定';
     if (hTotal) hTotal.textContent = `全 ${album.totalTracks} 曲`;
 
-    // ディスク順に描画
+    
     const sortedDiscs = Object.values(album.discs).sort((a, b) => a.cdNumber - b.cdNumber);
 
     const html = sortedDiscs.map((disc) => {
-      const rows = disc.tracks.map((t) => `
+      const rows = disc.tracks.map((t) => {
+        const artistDiffHtml = (t.trackArtist && t.trackArtist !== album.albumArtist)
+          ? '<p class="text-[11px] text-slate-400 truncate">' + Utils.escapeHtml(t.trackArtist) + '</p>'
+          : '';
+
+        return `
         <div class="px-3 py-2 flex items-center justify-between hover:bg-slate-800/50 transition border-b border-slate-800/40 last:border-b-0 min-h-[44px]">
           <div class="flex items-center gap-3 min-w-0 pr-2">
             <span class="w-6 text-center text-xs font-mono font-semibold text-slate-500 flex-shrink-0">
@@ -1435,16 +1731,15 @@ class App {
               <p class="text-xs md:text-sm font-medium text-slate-200 truncate">
                 ${Utils.escapeHtml(t.trackName)}
               </p>
-              ${t.trackArtist !== album.albumArtist ? `
-                <p class="text-[11px] text-slate-400 truncate">${Utils.escapeHtml(t.trackArtist)}</p>
-              ` : ''}
+              ${artistDiffHtml}
             </div>
           </div>
           <span class="text-[10px] text-slate-500 font-mono uppercase bg-slate-800/60 px-1.5 py-0.5 rounded flex-shrink-0">
             Track ${t.trackNumber}
           </span>
         </div>
-      `).join('');
+      `;
+      }).join('');
 
       return `
         <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden shadow">
@@ -1466,10 +1761,10 @@ class App {
     discsContainer.innerHTML = html;
   }
 
-  /**
-   * モバイルステップ切り替え
-   * @param {1|2|3} step 
-   */
+  
+
+
+
   setMobileStep(step) {
     this.store.state.mobileStep = step;
     if (window.innerWidth >= 768) return;
@@ -1483,9 +1778,9 @@ class App {
     if (pTracks) pTracks.classList.toggle('hidden', step !== 3);
   }
 
-  /**
-   * リサイズ時のペイン表示制御
-   */
+  
+
+
   handleResize() {
     const pArtists = document.getElementById('pane-artists');
     const pAlbums = document.getElementById('pane-albums');
@@ -1500,10 +1795,10 @@ class App {
     }
   }
 
-  /**
-   * 全体クイック横断検索
-   * @param {string} query 
-   */
+  
+
+
+
   handleGlobalSearch(query) {
     if (!query || !query.trim()) {
       this.store.state.artistFilter = '';
@@ -1517,7 +1812,7 @@ class App {
       return;
     }
 
-    // 最初に見つかった曲のアーティストとアルバムへジャンプ
+    
     const firstMatch = matchedTracks[0];
     this.store.state.selectedArtist = firstMatch.albumArtist;
     this.store.state.selectedAlbum = firstMatch.albumName;
@@ -1530,9 +1825,9 @@ class App {
     }
   }
 
-  /**
-   * iTunes モーダル表示
-   */
+  
+
+
   openItunesModal() {
     const modal = document.getElementById('modal-itunes');
     if (modal) modal.classList.remove('hidden');
@@ -1548,9 +1843,9 @@ class App {
     if (modal) modal.classList.add('hidden');
   }
 
-  /**
-   * iTunes 検索実行
-   */
+  
+
+
   async executeItunesSearch() {
     const input = document.getElementById('itunes-search-input');
     const keyword = input ? input.value.trim() : '';
@@ -1576,9 +1871,9 @@ class App {
     }
   }
 
-  /**
-   * iTunes 検索結果描画
-   */
+  
+
+
   renderItunesResults() {
     const container = document.getElementById('itunes-results-container');
     if (!container) return;
@@ -1615,10 +1910,10 @@ class App {
     });
   }
 
-  /**
-   * iTunes アルバム選択・収録曲Lookupプレビュー
-   * @param {string|number} collectionId 
-   */
+  
+
+
+
   async selectItunesAlbumForPreview(collectionId) {
     const empty = document.getElementById('itunes-preview-empty');
     const content = document.getElementById('itunes-preview-content');
@@ -1665,14 +1960,14 @@ class App {
     }
   }
 
-  /**
-   * iTunes アルバム一括保存実行
-   */
+  
+
+
   async submitItunesBatch() {
     const detail = this.store.state.selectedItunesAlbum;
     if (!detail) return;
 
-    if (this.store.state.isSaving) return; // 二重送信防止
+    if (this.store.state.isSaving) return; 
     this.store.state.isSaving = true;
 
     const btnText = document.getElementById('itunes-batch-btn-text');
@@ -1700,7 +1995,7 @@ class App {
       this.closeItunesModal();
       await this.loadInitialData();
 
-      // 追加したアルバムを選択
+      
       this.store.state.selectedArtist = detail.albumArtist;
       this.store.state.selectedAlbum = detail.albumName;
       this.renderAll();
@@ -1717,10 +2012,10 @@ class App {
     }
   }
 
-  /**
-   * 手動登録モーダル表示
-   * @param {object} preset 
-   */
+  
+
+
+
   openManualModal(preset = {}) {
     const modal = document.getElementById('modal-manual');
     if (modal) modal.classList.remove('hidden');
@@ -1751,9 +2046,9 @@ class App {
     if (modal) modal.classList.add('hidden');
   }
 
-  /**
-   * 手動楽曲登録送信
-   */
+  
+
+
   async submitManualTrack() {
     const form = document.getElementById('form-manual-track');
     if (form && !form.checkValidity()) {
@@ -1803,7 +2098,7 @@ class App {
       this.renderAll();
 
       if (continuous) {
-        // 次の曲番号へインクリメントしてフォーカス
+        
         const trackNoEl = document.getElementById('manual-track-number');
         const trackNameEl = document.getElementById('manual-track-name');
         if (trackNoEl) trackNoEl.value = trackNumber + 1;
@@ -1826,11 +2121,11 @@ class App {
     }
   }
 
-  /**
-   * アルバムアート拡大表示
-   * @param {string} url 
-   * @param {string} title 
-   */
+  
+
+
+
+
   openImageModal(url, title) {
     const modal = document.getElementById('modal-image');
     const img = document.getElementById('image-modal-img');
@@ -1850,6 +2145,435 @@ class App {
   closeImageModal() {
     const modal = document.getElementById('modal-image');
     if (modal) modal.classList.add('hidden');
+  }
+
+  
+
+
+
+  openEditAlbumModal(albumData) {
+    const album = albumData || this.store.getSelectedAlbumData();
+    if (!album) {
+      Utils.showToast('編集対象のアルバムが見つかりません', 'warning');
+      return;
+    }
+
+    
+    this.editingTargetKey = {
+      originalAlbumArtist: album.albumArtist,
+      originalAlbumName: album.albumName
+    };
+
+    
+    const nameInput = document.getElementById('edit-album-name');
+    const artistInput = document.getElementById('edit-album-artist');
+    const dateInput = document.getElementById('edit-album-release-date');
+    const artUrlInput = document.getElementById('edit-album-artwork-url');
+    const artPreview = document.getElementById('edit-album-art-preview');
+
+    if (nameInput) nameInput.value = album.albumName || '';
+    if (artistInput) artistInput.value = album.albumArtist || '';
+    if (dateInput) dateInput.value = album.releaseDate ? Utils.formatDate(album.releaseDate) : '';
+    if (artUrlInput) artUrlInput.value = album.artworkUrl || '';
+    if (artPreview) {
+      artPreview.src = album.artworkUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="%23475569" stroke-width="1.5"><rect width="24" height="24" fill="%231e293b"/><circle cx="12" cy="12" r="4"/></svg>';
+    }
+
+    
+    this.editingTracks = [];
+    const sortedDiscs = Object.values(album.discs || {}).sort((a, b) => a.cdNumber - b.cdNumber);
+    sortedDiscs.forEach((disc) => {
+      disc.tracks.forEach((t) => {
+        this.editingTracks.push({
+          cdNumber: Number(t.cdNumber) || Number(disc.cdNumber) || 1,
+          trackNumber: Number(t.trackNumber) || 1,
+          trackName: t.trackName || '',
+          trackArtist: t.trackArtist || album.albumArtist || ''
+        });
+      });
+    });
+
+    if (this.editingTracks.length === 0) {
+      this.editingTracks.push({
+        cdNumber: 1,
+        trackNumber: 1,
+        trackName: '',
+        trackArtist: album.albumArtist || ''
+      });
+    }
+
+    this.renderEditModalTracks();
+
+    const modal = document.getElementById('modal-edit-album');
+    if (modal) modal.classList.remove('hidden');
+
+    if (nameInput) nameInput.focus();
+  }
+
+  
+
+
+  closeEditAlbumModal() {
+    const modal = document.getElementById('modal-edit-album');
+    if (modal) modal.classList.add('hidden');
+    this.editingTargetKey = null;
+    this.editingTracks = [];
+  }
+
+  
+
+
+  renderEditModalTracks() {
+    const tableBody = document.getElementById('edit-tracks-table-body');
+    const mobileContainer = document.getElementById('edit-tracks-mobile-container');
+    const countBadge = document.getElementById('edit-tracks-count-badge');
+    const emptyWarning = document.getElementById('edit-tracks-empty-warning');
+
+    if (countBadge) countBadge.textContent = `${this.editingTracks.length}曲`;
+    if (emptyWarning) emptyWarning.classList.toggle('hidden', this.editingTracks.length > 0);
+
+    const defaultArtist = (document.getElementById('edit-album-artist')?.value || '').trim();
+
+    
+    if (tableBody) {
+      tableBody.innerHTML = this.editingTracks.map((t, index) => {
+        const canDelete = this.editingTracks.length > 1;
+        return `
+          <tr class="hover:bg-slate-900/60 transition" data-track-index="${index}">
+            <td class="py-2 px-2 text-center">
+              <input type="number" min="1" step="1" inputmode="numeric" value="${t.cdNumber}"
+                class="edit-track-cd w-12 text-center px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 font-mono focus:border-indigo-500 focus:outline-none">
+            </td>
+            <td class="py-2 px-2 text-center">
+              <input type="number" min="1" step="1" inputmode="numeric" value="${t.trackNumber}"
+                class="edit-track-no w-12 text-center px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 font-mono focus:border-indigo-500 focus:outline-none">
+            </td>
+            <td class="py-2 px-3">
+              <input type="text" required maxlength="255" value="${Utils.escapeHtml(t.trackName)}" placeholder="曲名を入力"
+                class="edit-track-name w-full px-2.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:border-indigo-500 focus:outline-none">
+            </td>
+            <td class="py-2 px-3">
+              <input type="text" maxlength="255" value="${Utils.escapeHtml(t.trackArtist)}" placeholder="${Utils.escapeHtml(defaultArtist || 'アルバムアーティスト')}"
+                class="edit-track-artist w-full px-2.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:border-indigo-500 focus:outline-none">
+            </td>
+            <td class="py-2 px-2 text-center">
+              <button type="button" class="btn-remove-edit-track min-h-[44px] min-w-[44px] p-2 text-slate-500 hover:text-rose-400 disabled:opacity-30 disabled:pointer-events-none rounded transition"
+                      data-index="${index}" ${canDelete ? '' : 'disabled'} title="${canDelete ? 'このトラックを削除' : '最後の1曲は削除できません'}">
+                <svg class="w-4 h-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                </svg>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    
+    if (mobileContainer) {
+      mobileContainer.innerHTML = this.editingTracks.map((t, index) => {
+        const canDelete = this.editingTracks.length > 1;
+        return `
+          <div class="bg-slate-900/90 border border-slate-800 rounded-lg p-3 space-y-2 relative" data-track-index="${index}">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-400 font-semibold">CD:</span>
+                <input type="number" min="1" step="1" inputmode="numeric" value="${t.cdNumber}"
+                  class="edit-track-cd w-12 text-center px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-slate-100 font-mono focus:border-indigo-500 focus:outline-none">
+                <span class="text-xs text-slate-400 font-semibold ml-1">No:</span>
+                <input type="number" min="1" step="1" inputmode="numeric" value="${t.trackNumber}"
+                  class="edit-track-no w-12 text-center px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-slate-100 font-mono focus:border-indigo-500 focus:outline-none">
+              </div>
+              <button type="button" class="btn-remove-edit-track min-h-[44px] min-w-[44px] -mr-1 p-2 text-slate-500 hover:text-rose-400 disabled:opacity-30 disabled:pointer-events-none rounded transition flex items-center justify-center"
+                      data-index="${index}" ${canDelete ? '' : 'disabled'} title="トラック削除">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                </svg>
+              </button>
+            </div>
+            <div>
+              <input type="text" required maxlength="255" value="${Utils.escapeHtml(t.trackName)}" placeholder="曲名 (必須)"
+                class="edit-track-name w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-slate-100 focus:border-indigo-500 focus:outline-none">
+            </div>
+            <div>
+              <input type="text" maxlength="255" value="${Utils.escapeHtml(t.trackArtist)}" placeholder="アーティスト名 (省略時: ${Utils.escapeHtml(defaultArtist || 'アルバムアーティスト')})"
+                class="edit-track-artist w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-slate-100 focus:border-indigo-500 focus:outline-none">
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    
+    const removeButtons = document.querySelectorAll('.btn-remove-edit-track');
+    removeButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-index'));
+        this.removeEditTrackRow(idx);
+      });
+    });
+
+    
+    const bindInputChange = (container) => {
+      if (!container) return;
+      container.querySelectorAll('[data-track-index]').forEach((rowEl) => {
+        const idx = Number(rowEl.getAttribute('data-track-index'));
+        const cdInput = rowEl.querySelector('.edit-track-cd');
+        const noInput = rowEl.querySelector('.edit-track-no');
+        const nameInput = rowEl.querySelector('.edit-track-name');
+        const artistInput = rowEl.querySelector('.edit-track-artist');
+
+        if (cdInput) cdInput.addEventListener('change', (e) => {
+          if (this.editingTracks[idx]) this.editingTracks[idx].cdNumber = Number(e.target.value) || 1;
+        });
+        if (noInput) noInput.addEventListener('change', (e) => {
+          if (this.editingTracks[idx]) this.editingTracks[idx].trackNumber = Number(e.target.value) || 1;
+        });
+        if (nameInput) nameInput.addEventListener('input', (e) => {
+          if (this.editingTracks[idx]) this.editingTracks[idx].trackName = e.target.value;
+        });
+        if (artistInput) artistInput.addEventListener('input', (e) => {
+          if (this.editingTracks[idx]) this.editingTracks[idx].trackArtist = e.target.value;
+        });
+      });
+    };
+
+    bindInputChange(tableBody);
+    bindInputChange(mobileContainer);
+  }
+
+  
+
+
+  syncEditingTracksFromDom() {
+    const isMobile = window.innerWidth < 768;
+    const container = isMobile
+      ? document.getElementById('edit-tracks-mobile-container')
+      : document.getElementById('edit-tracks-table-body');
+
+    if (!container) return;
+    const rows = container.querySelectorAll('[data-track-index]');
+    rows.forEach((rowEl) => {
+      const idx = Number(rowEl.getAttribute('data-track-index'));
+      const cd = Number(rowEl.querySelector('.edit-track-cd')?.value) || 1;
+      const trackNo = Number(rowEl.querySelector('.edit-track-no')?.value) || 1;
+      const trackName = (rowEl.querySelector('.edit-track-name')?.value || '').trim();
+      const trackArtist = (rowEl.querySelector('.edit-track-artist')?.value || '').trim();
+
+      if (this.editingTracks[idx]) {
+        this.editingTracks[idx].cdNumber = cd;
+        this.editingTracks[idx].trackNumber = trackNo;
+        this.editingTracks[idx].trackName = trackName;
+        this.editingTracks[idx].trackArtist = trackArtist;
+      }
+    });
+  }
+
+  
+
+
+  addEditTrackRow() {
+    this.syncEditingTracksFromDom();
+    const defaultArtist = (document.getElementById('edit-album-artist')?.value || '').trim();
+
+    let nextCd = 1;
+    let nextTrackNo = 1;
+
+    if (this.editingTracks.length > 0) {
+      const lastTrack = this.editingTracks[this.editingTracks.length - 1];
+      nextCd = Number(lastTrack.cdNumber) || 1;
+      nextTrackNo = (Number(lastTrack.trackNumber) || 0) + 1;
+    }
+
+    this.editingTracks.push({
+      cdNumber: nextCd,
+      trackNumber: nextTrackNo,
+      trackName: '',
+      trackArtist: defaultArtist
+    });
+
+    this.renderEditModalTracks();
+
+    
+    const isMobile = window.innerWidth < 768;
+    const container = isMobile
+      ? document.getElementById('edit-tracks-mobile-container')
+      : document.getElementById('edit-tracks-table-body');
+
+    if (container) {
+      const lastRow = container.querySelector(`[data-track-index="${this.editingTracks.length - 1}"]`);
+      const nameInput = lastRow?.querySelector('.edit-track-name');
+      if (nameInput) {
+        nameInput.focus();
+        nameInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }
+
+  
+
+
+
+  removeEditTrackRow(index) {
+    this.syncEditingTracksFromDom();
+    if (this.editingTracks.length <= 1) {
+      Utils.showToast('収録曲は最低1曲必要です。すべて削除することはできません。', 'warning');
+      return;
+    }
+
+    this.editingTracks.splice(index, 1);
+    this.renderEditModalTracks();
+  }
+
+  
+
+
+  renumberEditTracks() {
+    this.syncEditingTracksFromDom();
+    if (this.editingTracks.length === 0) return;
+
+    const cdCounters = {};
+    this.editingTracks.forEach((t) => {
+      const cd = Number(t.cdNumber) || 1;
+      if (!cdCounters[cd]) cdCounters[cd] = 1;
+      t.trackNumber = cdCounters[cd]++;
+    });
+
+    this.renderEditModalTracks();
+    Utils.showToast('CD番号ごとにトラック番号を 1 から連番で再採番しました', 'info');
+  }
+
+  
+
+
+  async handleSaveAlbumEdit() {
+    if (this.store.state.isSaving) return; 
+
+    this.syncEditingTracksFromDom();
+
+    const albumName = (document.getElementById('edit-album-name')?.value || '').trim();
+    const albumArtist = (document.getElementById('edit-album-artist')?.value || '').trim();
+    const releaseDate = (document.getElementById('edit-album-release-date')?.value || '').trim();
+    const artworkUrl = (document.getElementById('edit-album-artwork-url')?.value || '').trim();
+
+    
+    if (!albumName) {
+      Utils.showToast('アルバム名を入力してください', 'warning');
+      document.getElementById('edit-album-name')?.focus();
+      return;
+    }
+    if (!albumArtist) {
+      Utils.showToast('アルバムアーティスト名を入力してください', 'warning');
+      document.getElementById('edit-album-artist')?.focus();
+      return;
+    }
+    if (albumName.length > 255 || albumArtist.length > 255) {
+      Utils.showToast('アルバム名およびアーティスト名は255文字以内で入力してください', 'warning');
+      return;
+    }
+
+    
+    if (this.editingTracks.length === 0) {
+      Utils.showToast('収録曲は最低1曲必要です。「+ トラック追加」から追加してください', 'warning');
+      return;
+    }
+
+    
+    const cdTrackSet = new Set();
+    for (let i = 0; i < this.editingTracks.length; i++) {
+      const t = this.editingTracks[i];
+      const trackName = String(t.trackName || '').trim();
+      if (!trackName) {
+        Utils.showToast(`トラック #${i + 1} の曲名が入力されていません`, 'warning');
+        return;
+      }
+      if (trackName.length > 255) {
+        Utils.showToast(`トラック #${i + 1} の曲名は255文字以内で入力してください`, 'warning');
+        return;
+      }
+
+      const cd = Number(t.cdNumber);
+      const trackNo = Number(t.trackNumber);
+      if (!Number.isInteger(cd) || cd < 1) {
+        Utils.showToast(`トラック #${i + 1} のCD番号は1以上の整数を指定してください`, 'warning');
+        return;
+      }
+      if (!Number.isInteger(trackNo) || trackNo < 1) {
+        Utils.showToast(`トラック #${i + 1} のトラック番号は1以上の整数を指定してください`, 'warning');
+        return;
+      }
+
+      
+      const uniqueKey = `${cd}_${trackNo}`;
+      if (cdTrackSet.has(uniqueKey)) {
+        Utils.showToast(`CD番号 ${cd} の中に重複するトラック番号 #${trackNo} が存在します。「番号自動連番採番」を実行するか手動で修正してください。`, 'warning', 6000);
+        return;
+      }
+      cdTrackSet.add(uniqueKey);
+    }
+
+    
+    this.store.state.isSaving = true;
+
+    const btnSubmit = document.getElementById('btn-submit-edit-album');
+    const btnMobileSubmit = document.getElementById('btn-mobile-submit-edit-album');
+    const spinners = document.querySelectorAll('.edit-album-submit-spinner');
+    const btnTexts = document.querySelectorAll('.edit-album-submit-btn-text');
+
+    if (btnSubmit) btnSubmit.disabled = true;
+    if (btnMobileSubmit) btnMobileSubmit.disabled = true;
+    spinners.forEach(s => s.classList.remove('hidden'));
+    btnTexts.forEach(t => t.textContent = '保存中...');
+
+    Utils.toggleGlobalLoading(true, 'スプレッドシート上のアルバムデータを一括更新中...');
+
+    try {
+      const payload = {
+        targetKey: this.editingTargetKey,
+        album: {
+          albumArtist,
+          albumName,
+          releaseDate,
+          artworkUrl
+        },
+        tracks: this.editingTracks.map(t => ({
+          cdNumber: Number(t.cdNumber) || 1,
+          trackNumber: Number(t.trackNumber) || 1,
+          trackName: String(t.trackName).trim(),
+          trackArtist: String(t.trackArtist || albumArtist).trim()
+        }))
+      };
+
+      const result = await this.api.updateAlbumBatch(payload);
+
+      
+      this.store.updateAlbumInCatalog(this.editingTargetKey, payload.album, payload.tracks);
+
+      
+      this.closeEditAlbumModal();
+      this.renderAll();
+      if (window.innerWidth < 768) {
+        this.setMobileStep(3);
+      }
+
+      Utils.showToast(`アルバム「${albumName}」(${result.updatedRowCount}曲) を更新しました！`, 'success', 4000);
+
+    } catch (err) {
+      console.error('アルバム編集エラー:', err);
+      
+      Utils.showToast(`アルバム更新エラー: ${err.message}`, 'error', 7000);
+    } finally {
+      this.store.state.isSaving = false;
+      if (btnSubmit) btnSubmit.disabled = false;
+      if (btnMobileSubmit) btnMobileSubmit.disabled = false;
+      spinners.forEach(s => s.classList.add('hidden'));
+      btnTexts.forEach(t => t.textContent = '変更を保存');
+      if (btnMobileSubmit) {
+        const mobileText = btnMobileSubmit.querySelector('.edit-album-submit-btn-text');
+        if (mobileText) mobileText.textContent = '保存';
+      }
+      Utils.toggleGlobalLoading(false);
+    }
   }
 }
 

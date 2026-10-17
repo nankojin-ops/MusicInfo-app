@@ -268,6 +268,132 @@ class MusicService {
   }
 
   /**
+   * アルバムおよび収録曲の一括編集
+   * @param {AlbumEditPayload} payload 
+   * @returns {AlbumEditResult}
+   */
+  updateAlbum(payload) {
+    this.validateAlbumPayload_(payload);
+    const { targetKey, album, tracks } = payload;
+    return this.sheetService.updateAlbumBatch(targetKey, album, tracks);
+  }
+
+  /**
+   * アルバム編集ペイロードの厳格な二重バリデーション
+   * @param {AlbumEditPayload} payload 
+   */
+  validateAlbumPayload_(payload) {
+    if (!payload || typeof payload !== 'object') {
+      const err = new Error('リクエストペイロードが不正なオブジェクトです。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    const { targetKey, album, tracks } = payload;
+
+    // 1. 旧識別キーの存在検証
+    if (!targetKey || typeof targetKey !== 'object') {
+      const err = new Error('編集対象の旧アルバム識別キー（targetKey）が指定されていません。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const origArtist = String(targetKey.originalAlbumArtist || '').trim();
+    const origAlbum = String(targetKey.originalAlbumName || '').trim();
+    if (!origArtist || !origAlbum) {
+      const err = new Error('編集対象の旧アルバムアーティスト名および旧アルバム名は必須です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    // 2. 新アルバムメタデータの必須・文字長検証（最大255文字）
+    if (!album || typeof album !== 'object') {
+      const err = new Error('新アルバム情報（album）が指定されていません。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const albumName = String(album.albumName || '').trim();
+    const albumArtist = String(album.albumArtist || '').trim();
+    if (!albumName) {
+      const err = new Error('アルバム名は必須です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    if (!albumArtist) {
+      const err = new Error('アルバムアーティスト名は必須です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    if (albumName.length > 255 || albumArtist.length > 255) {
+      const err = new Error('アルバム名およびアルバムアーティスト名は最大255文字以内で入力してください。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    // 3. 収録曲件数検証（最低1曲必須・全削除抑止）
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      const err = new Error('収録曲は最低1曲必要です。全曲削除することはできません。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    // 4. トラック一覧の反復検証（正整数・必須・文字長・同一CD番号内重複検証）
+    const trackKeySet = new Set();
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (!t || typeof t !== 'object') {
+        const err = new Error(`トラックデータ[${i + 1}]が不正なオブジェクトです。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+
+      // CD番号の検証（1以上の正整数、有限数、小数は拒絶）
+      const cdNo = Number(t.cdNumber);
+      if (!Number.isInteger(cdNo) || cdNo < 1 || !Number.isFinite(cdNo)) {
+        const err = new Error(`トラック #${i + 1} のCD番号は1以上の整数を指定してください。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+
+      // トラック番号の検証（1以上の正整数、有限数、小数は拒絶）
+      const trkNo = Number(t.trackNumber);
+      if (!Number.isInteger(trkNo) || trkNo < 1 || !Number.isFinite(trkNo)) {
+        const err = new Error(`トラック #${i + 1} のトラック番号は1以上の整数を指定してください。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+
+      // トラック曲名の必須・文字長検証
+      const trkName = String(t.trackName || '').trim();
+      if (!trkName) {
+        const err = new Error(`トラック #${i + 1} の曲名は必須です。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+      if (trkName.length > 255) {
+        const err = new Error(`トラック #${i + 1} の曲名は255文字以内で入力してください。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+
+      // トラックアーティスト名の文字長検証（任意）
+      if (t.trackArtist && String(t.trackArtist).length > 255) {
+        const err = new Error(`トラック #${i + 1} のアーティスト名は255文字以内で入力してください。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+
+      // 同一CD番号内でのトラック番号重複禁止検証
+      const uniqueDiscTrackKey = `${cdNo}_${trkNo}`;
+      if (trackKeySet.has(uniqueDiscTrackKey)) {
+        const err = new Error(`CD番号 ${cdNo} の中に重複するトラック番号 #${trkNo} が存在します。番号を調整してください。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+      trackKeySet.add(uniqueDiscTrackKey);
+    }
+  }
+
+  /**
    * スプレッドシート式インジェクション（=, @, +, - で始まる文字列）を無害化
    * @param {any} val 
    * @returns {string}

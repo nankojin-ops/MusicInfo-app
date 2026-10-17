@@ -150,6 +150,97 @@ class SheetService {
   }
 
   /**
+   * アルバムおよび収録曲の一括更新（アトミック置換・排他制御）
+   * @param {{ originalAlbumArtist: string, originalAlbumName: string }} targetKey 
+   * @param {{ albumName: string, albumArtist: string, releaseDate?: string, artworkUrl?: string }} newAlbumMeta 
+   * @param {Array<{ cdNumber: number, trackNumber: number, trackName: string, trackArtist?: string }>} newTracks 
+   * @returns {AlbumEditResult}
+   */
+  updateAlbumBatch(targetKey, newAlbumMeta, newTracks) {
+    // 1. スクリプト排他ロックの獲得（最大10秒待機）
+    const lock = LockService.getScriptLock();
+    const hasLock = lock.tryLock(10000);
+    if (!hasLock) {
+      const err = new Error('他ユーザーが更新処理中のため、保存を実行できませんでした。しばらく時間をおいて再試行してください。');
+      err.code = 'LOCK_TIMEOUT';
+      throw err;
+    }
+
+    try {
+      const sheet = this.getOrCreateSheet();
+      const lastRow = sheet.getLastRow();
+      if (lastRow < 2) {
+        const err = new Error('スプレッドシートにデータが存在しません。');
+        err.code = 'NOT_FOUND';
+        throw err;
+      }
+
+      // 2. 既存全データ行（2行目〜最終行、A〜H列）を一括取得
+      const dataRange = sheet.getRange(2, 1, lastRow - 1, 8);
+      const rawRows = dataRange.getValues();
+
+      const origArtist = String(targetKey.originalAlbumArtist || '').trim();
+      const origAlbum = String(targetKey.originalAlbumName || '').trim();
+
+      // 3. 旧識別キーに合致する既存行を除外し、合致しない行のみを retainedRows として保持
+      const retainedRows = [];
+      let matchCount = 0;
+
+      for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        const rowAlbumArtist = String(row[1] || '').trim();
+        const rowAlbumName = String(row[2] || '').trim();
+
+        if (rowAlbumArtist === origArtist && rowAlbumName === origAlbum) {
+          matchCount++;
+        } else {
+          retainedRows.push(row);
+        }
+      }
+
+      if (matchCount === 0) {
+        const err = new Error(`更新対象のアルバム「${origAlbum} (${origArtist})」がスプレッドシート上に見つかりませんでした。`);
+        err.code = 'NOT_FOUND';
+        throw err;
+      }
+
+      // 4. 編集後の新トラック行配列を組み立て（全文字列項目に escapeFormula_ を適用）
+      const newRows = newTracks.map(t => [
+        Number(t.cdNumber) || 1,
+        this.escapeFormula_(String(newAlbumMeta.albumArtist).trim()),
+        this.escapeFormula_(String(newAlbumMeta.albumName).trim()),
+        this.escapeFormula_(String(t.trackArtist || newAlbumMeta.albumArtist).trim()),
+        Number(t.trackNumber) || 1,
+        this.escapeFormula_(String(t.trackName).trim()),
+        this.escapeFormula_(String(newAlbumMeta.releaseDate || '').trim()),
+        this.escapeFormula_(String(newAlbumMeta.artworkUrl || '').trim())
+      ]);
+
+      // 5. 保持行と新行群を結合
+      const combinedRows = retainedRows.concat(newRows);
+
+      // 6. データ領域を一括置換（アトミック更新）
+      dataRange.clearContent();
+      if (combinedRows.length > 0) {
+        sheet.getRange(2, 1, combinedRows.length, 8).setValues(combinedRows);
+      }
+
+      SpreadsheetApp.flush();
+
+      return {
+        updatedRowCount: newRows.length,
+        totalRowCount: combinedRows.length,
+        previousRowCount: matchCount,
+        albumName: newAlbumMeta.albumName,
+        albumArtist: newAlbumMeta.albumArtist
+      };
+    } finally {
+      // 7. 排他ロックの確実な解放
+      lock.releaseLock();
+    }
+  }
+
+  /**
    * スプレッドシート式インジェクション（=, @, +, - で始まる文字列）を無害化
    * @param {any} val 
    * @returns {string}

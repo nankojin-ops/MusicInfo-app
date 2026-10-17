@@ -176,6 +176,45 @@ class Store {
       );
     });
   }
+
+  /**
+   * アルバム編集後のキャッシュ即時差分同期＆選択追従
+   * @param {{ originalAlbumArtist: string, originalAlbumName: string }} targetKey 
+   * @param {{ albumArtist: string, albumName: string, releaseDate?: string, artworkUrl?: string }} newAlbumMeta 
+   * @param {Array<{ cdNumber: number, trackNumber: number, trackName: string, trackArtist?: string }>} newTracks 
+   */
+  updateAlbumInCatalog(targetKey, newAlbumMeta, newTracks) {
+    const origArtist = String(targetKey.originalAlbumArtist || '').trim();
+    const origAlbum = String(targetKey.originalAlbumName || '').trim();
+
+    // 1. 旧アルバムに合致する既存レコードを除外
+    const retainedTracks = this.state.allTracks.filter(t => {
+      if (!t || typeof t !== 'object') return false;
+      const tArtist = String(t.albumArtist || '').trim();
+      const tAlbum = String(t.albumName || '').trim();
+      return !(tArtist === origArtist && tAlbum === origAlbum);
+    });
+
+    // 2. 編集後の新トラック行オブジェクト群を生成
+    const updatedRows = newTracks.map(t => ({
+      cdNumber: Number(t.cdNumber) || 1,
+      albumArtist: String(newAlbumMeta.albumArtist).trim(),
+      albumName: String(newAlbumMeta.albumName).trim(),
+      trackArtist: String(t.trackArtist || newAlbumMeta.albumArtist).trim(),
+      trackNumber: Number(t.trackNumber) || 1,
+      trackName: String(t.trackName).trim(),
+      releaseDate: newAlbumMeta.releaseDate ? String(newAlbumMeta.releaseDate).trim() : '',
+      artworkUrl: newAlbumMeta.artworkUrl ? String(newAlbumMeta.artworkUrl).trim() : ''
+    }));
+
+    // 3. 結合して全トラック配列を再構成し、ツリーを再ビルド
+    this.state.allTracks = retainedTracks.concat(updatedRows);
+    this.buildCatalog();
+
+    // 4. アルバム名やアーティスト名が改名された場合でも選択中状態を新名称に自動追従
+    this.state.selectedArtist = String(newAlbumMeta.albumArtist).trim();
+    this.state.selectedAlbum = String(newAlbumMeta.albumName).trim();
+  }
 }
 
 if (typeof window !== 'undefined') {

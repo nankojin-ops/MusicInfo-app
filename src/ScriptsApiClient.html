@@ -77,6 +77,15 @@ class ApiClient {
   saveTrackSingle(track) {
     return this.callGAS('apiSaveTrackSingle', track);
   }
+
+  /**
+   * アルバムデータ一括更新
+   * @param {AlbumEditPayload} payload 
+   * @returns {Promise<AlbumEditResult>}
+   */
+  updateAlbumBatch(payload) {
+    return this.callGAS('apiUpdateAlbumBatch', payload);
+  }
 }
 
 if (typeof window !== 'undefined') {

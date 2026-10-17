@@ -48,12 +48,22 @@
       </div>
     </div>
 
-    <!-- 1曲手動追加ボタン -->
-    <div class="flex-shrink-0 hidden sm:block">
-      <button id="btn-add-track-to-album" class="p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition" title="このアルバムに曲を追加">
+    <!-- アルバム操作ボタングループ（編集 & 1曲追加） -->
+    <div class="flex-shrink-0 flex items-center gap-1 sm:gap-1.5">
+      <!-- このアルバムを編集ボタン (WCAG 44pxタップ領域保証) -->
+      <button id="btn-edit-album" class="min-h-[44px] min-w-[44px] p-2 text-slate-300 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムの情報を編集">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+        </svg>
+        <span class="text-xs font-medium hidden sm:inline">編集</span>
+      </button>
+
+      <!-- 1曲手動追加ボタン (WCAG 44pxタップ領域保証) -->
+      <button id="btn-add-track-to-album" class="min-h-[44px] min-w-[44px] p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムに曲を追加">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
         </svg>
+        <span class="text-xs font-medium hidden sm:inline">曲追加</span>
       </button>
     </div>
   </div>

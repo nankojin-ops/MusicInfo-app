@@ -33,6 +33,7 @@ const htmlIncludes = [
   'TrackDetail',
   'ItunesModal',
   'ManualModal',
+  'EditAlbumModal',
   'ImageModal'
 ];
 
