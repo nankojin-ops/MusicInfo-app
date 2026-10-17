@@ -407,7 +407,10 @@ class App {
     const hTotal = document.getElementById('track-header-total-tracks');
 
     if (hArt) {
-      hArt.src = album.artworkUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="%23475569" stroke-width="1.5"><rect width="24" height="24" fill="%231e293b"/><circle cx="12" cy="12" r="4"/></svg>';
+      const defaultArtwork = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect width="24" height="24" fill="#1e293b"/><circle cx="12" cy="12" r="4"/></svg>'
+      );
+      hArt.src = album.artworkUrl || defaultArtwork;
     }
     if (hAlbum) hAlbum.textContent = album.albumName;
     if (hArtist) hArtist.textContent = album.albumArtist;
@@ -839,6 +842,10 @@ class App {
     const modal = document.getElementById('modal-image');
     if (modal) modal.classList.add('hidden');
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.App = App;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

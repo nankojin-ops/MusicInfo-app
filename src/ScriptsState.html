@@ -178,6 +178,10 @@ class Store {
   }
 }
 
+if (typeof window !== 'undefined') {
+  window.Store = Store;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Store;
 }

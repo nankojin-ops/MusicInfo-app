@@ -13,11 +13,17 @@ function doGet(e) {
 
 /**
  * HTMLService テンプレート内インクルードヘルパー
+ * createTemplateFromFile().getRawContent() により、スクリプト内のHTMLタグや演算子(<, &&)が
+ * サニタイザーによって破損・エンコードされるのを防ぎ、生のコンテンツを安全に挿入します。
  * @param {string} filename 
  * @returns {string} ファイルの内容HTML文字列
  */
 function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  try {
+    return HtmlService.createTemplateFromFile(filename).getRawContent();
+  } catch (e) {
+    return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  }
 }
 
 /**

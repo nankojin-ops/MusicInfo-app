@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja" class="h-full bg-slate-950 text-slate-100">
 <head>
+  <base target="_top">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>MusicInfo Manager - 音楽CD・アルバムコレクション管理</title>
@@ -48,10 +49,23 @@
 
   <script>
     // アプリケーション起動
-    document.addEventListener('DOMContentLoaded', () => {
-      window.app = new App();
-      window.app.init();
-    });
+    function startApp() {
+      const AppClass = window.App || (typeof App !== 'undefined' ? App : null);
+      if (!AppClass) {
+        console.error('App クラスがロードされていません');
+        return;
+      }
+      if (!window.app) {
+        window.app = new AppClass();
+        window.app.init();
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startApp);
+    } else {
+      startApp();
+    }
   </script>
 </body>
 </html>
