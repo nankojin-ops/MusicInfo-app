@@ -61,12 +61,17 @@ function stripComments(code) {
     SINGLE_QUOTE: 1,
     DOUBLE_QUOTE: 2,
     TEMPLATE_LITERAL: 3,
-    LINE_COMMENT: 4,
-    BLOCK_COMMENT: 5
+    REGEX: 4,
+    LINE_COMMENT: 5,
+    BLOCK_COMMENT: 6
   };
 
   let state = State.NORMAL;
   let escape = false;
+  let inCharClass = false;
+  let lastNonWhitespace = '';
+  let currentWord = '';
+  let lastWord = '';
 
   while (i < len) {
     const ch = code[i];
@@ -89,6 +94,17 @@ function stripComments(code) {
         } else if (ch === '/' && next === '*') {
           state = State.BLOCK_COMMENT;
           i++;
+        } else if (ch === '/') {
+          // 直前の非空白文字または直前キーワードから、正規表現リテラルか除算演算子かを判定
+          const isRegexPrefix = !lastNonWhitespace ||
+            /[([{\\,;:!=&|?+\-*^%~<>]/.test(lastNonWhitespace) ||
+            /^(return|case|typeof|delete|void|throw|in|instanceof|yield|await)$/.test(lastWord);
+          if (isRegexPrefix) {
+            state = State.REGEX;
+            inCharClass = false;
+            escape = false;
+          }
+          result += ch;
         } else {
           result += ch;
         }
@@ -124,6 +140,21 @@ function stripComments(code) {
         }
         break;
 
+      case State.REGEX:
+        result += ch;
+        if (ch === '\\') {
+          escape = !escape;
+        } else if (escape) {
+          escape = false;
+        } else if (ch === '[' && !inCharClass) {
+          inCharClass = true;
+        } else if (ch === ']' && inCharClass) {
+          inCharClass = false;
+        } else if (ch === '/' && !inCharClass) {
+          state = State.NORMAL;
+        }
+        break;
+
       case State.LINE_COMMENT:
         if (ch === '\n' || ch === '\r') {
           result += ch; // 改行は保持
@@ -139,6 +170,20 @@ function stripComments(code) {
           result += ch; // 改行は保持
         }
         break;
+    }
+
+    if (state === State.NORMAL) {
+      if (/[a-zA-Z0-9_$]/.test(ch)) {
+        currentWord += ch;
+      } else {
+        if (currentWord) {
+          lastWord = currentWord;
+          currentWord = '';
+        }
+      }
+      if (ch !== ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r') {
+        lastNonWhitespace = ch;
+      }
     }
 
     i++;

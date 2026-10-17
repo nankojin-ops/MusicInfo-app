@@ -78,7 +78,7 @@ const DriveService = require('../src/DriveService');
 const driveService = new DriveService(config);
 
 assert(driveService.sanitizeFileName('Album: Greatest / Hits? *2026*') === 'Album_Greatest_Hits_2026', 'ファイル名サニタイズ');
-assert(driveService.generateWebUrl('abc123xyz') === 'https://drive.google.com/uc?export=view&id=abc123xyz', 'Web表示URL生成');
+assert(driveService.generateWebUrl('abc123xyz') === 'https://drive.google.com/thumbnail?id=abc123xyz&sz=w800', 'Web表示URL生成');
 
 // 3. ItunesService のテスト
 console.log('\n[3] ItunesService のテスト');
@@ -144,6 +144,25 @@ assert(
 );
 assert(Utils.formatDate('2026-10-17T04:10:28Z') === '2026-10-17', 'ISO文字列の日付フォーマット');
 assert(Utils.formatDate(new Date(2026, 9, 17)) === '2026-10-17', 'Dateオブジェクトの日付フォーマット');
+
+// Google Drive URL解決 & ID抽出テスト
+assert(Utils.extractDriveFileId('https://drive.google.com/uc?export=view&id=FILE_123_abc') === 'FILE_123_abc', 'Drive uc?id からのID抽出');
+assert(Utils.extractDriveFileId('https://drive.google.com/file/d/FILE_456_def/view?usp=sharing') === 'FILE_456_def', 'Drive /file/d/ からのID抽出');
+assert(Utils.extractDriveFileId('https://drive.google.com/open?id=FILE_789_ghi') === 'FILE_789_ghi', 'Drive open?id からのID抽出');
+assert(Utils.extractDriveFileId('https://lh3.googleusercontent.com/d/FILE_XYZ_000') === 'FILE_XYZ_000', 'lh3.googleusercontent.com からのID抽出');
+assert(Utils.extractDriveFileId('https://is1-ssl.mzstatic.com/image.jpg') === null, '非Drive URLでのnull返却');
+
+assert(
+  Utils.resolveArtworkUrl('https://drive.google.com/uc?export=view&id=testId123', 400) ===
+  'https://drive.google.com/thumbnail?id=testId123&sz=w400',
+  'Google Drive URLのサムネイルURL変換'
+);
+assert(
+  Utils.resolveArtworkUrl('https://is1-ssl.mzstatic.com/image.jpg', 400) ===
+  'https://is1-ssl.mzstatic.com/image.jpg',
+  '通常画像URLの維持'
+);
+assert(Utils.resolveArtworkUrl('', 400) === '', '空文字URLの処理');
 
 // 6. フロントエンド Store クラスのテスト (ツリー構築 & ソート)
 console.log('\n[6] Store クラスのテスト (MusicCatalog ツリー構築 & 検索)');
@@ -264,6 +283,35 @@ try {
   assert(manifest.oauthScopes.length === 3, 'appsscript.json oauthScopes 3件定義');
 } catch (err) {
   assert(false, `appsscript.json パースエラー: ${err.message}`);
+}
+
+// 9. src/index.html バンドル成果物の構文およびセキュリティ検査
+console.log('\n[9] src/index.html バンドル成果物の構文およびセキュリティ検査');
+try {
+  const indexHtmlPath = path.join(srcDir, 'index.html');
+  assert(fs.existsSync(indexHtmlPath), 'src/index.html が存在する');
+  const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+
+  // インライン onerror 属性の不在検証
+  const onerrorMatch = indexHtml.match(/\bonerror\s*=\s*["'][^"']*["']/i);
+  assert(!onerrorMatch, 'src/index.html 内にインライン onerror 属性が存在しないこと');
+
+  // 全 <script> タグの構文解析
+  const scriptTags = [...indexHtml.matchAll(/<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gi)];
+  let allScriptsOk = true;
+  scriptTags.forEach((m, idx) => {
+    const code = m[1].trim();
+    if (!code) return; // 外部CDNタグ等
+    try {
+      new vm.Script(code, { filename: `index_script_${idx + 1}.js` });
+    } catch (err) {
+      allScriptsOk = false;
+      console.error(`  ✗ FAIL: src/index.html 内 script #${idx + 1} 構文エラー: ${err.message}`);
+    }
+  });
+  assert(allScriptsOk, 'src/index.html 内の全 script ブロックが構文エラーなくパース可能');
+} catch (err) {
+  assert(false, `src/index.html 検証エラー: ${err.message}`);
 }
 
 console.log('\n==================================================');

@@ -288,7 +288,7 @@
   <div id="track-album-header" class="bg-slate-900 border border-slate-800/80 rounded-xl p-3 md:p-4 mb-4 flex gap-3 md:gap-4 items-center flex-shrink-0 shadow-lg">
     <!-- ジャケット画像（タップで拡大） -->
     <div class="relative group cursor-pointer flex-shrink-0" id="btn-zoom-track-artwork">
-      <img id="track-header-artwork" src="" alt="Album Artwork"
+      <img id="track-header-artwork" src="" alt="Album Artwork" referrerpolicy="no-referrer"
         class="w-20 h-20 md:w-28 md:h-28 rounded-lg object-cover bg-slate-800 border border-slate-700/60 shadow">
       <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 rounded-lg flex items-center justify-center transition">
         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -552,7 +552,7 @@
     </button>
 
     <!-- 高解像度ジャケット画像 -->
-    <img id="image-modal-img" src="" alt="Album Artwork Large"
+    <img id="image-modal-img" src="" alt="Album Artwork Large" referrerpolicy="no-referrer"
       class="w-full max-h-[75vh] object-contain rounded-xl shadow-2xl border border-slate-700/80 bg-slate-900">
 
     <!-- タイトルキャプション -->
@@ -590,11 +590,11 @@ class Utils {
     return String(str).replace(/[&<>"']/g, (m) => map[m]);
   }
 
-  /**
-   * ISO日付文字列を YYYY-MM-DD に整形
-   * @param {string|Date} dateVal 
-   * @returns {string}
-   */
+  
+
+
+
+
   static formatDate(dateVal) {
     if (!dateVal) return '';
     if (dateVal instanceof Date || Object.prototype.toString.call(dateVal) === '[object Date]') {
@@ -606,12 +606,12 @@ class Utils {
     return String(dateVal).substring(0, 10);
   }
 
-  /**
-   * 関数デバウンス
-   * @param {Function} func 
-   * @param {number} wait 
-   * @returns {Function}
-   */
+  
+
+
+
+
+
   static debounce(func, wait = 250) {
     let timeout;
     return function(...args) {
@@ -620,12 +620,12 @@ class Utils {
     };
   }
 
-  /**
-   * トースト通知を表示
-   * @param {string} message 
-   * @param {'success'|'error'|'info'|'warning'} type 
-   * @param {number} duration 
-   */
+  
+
+
+
+
+
   static showToast(message, type = 'info', duration = 3000) {
     const container = document.getElementById('toast-container');
     if (!container) return;
@@ -650,11 +650,11 @@ class Utils {
     }, duration);
   }
 
-  /**
-   * グローバルローディングの表示/非表示
-   * @param {boolean} show 
-   * @param {string} text 
-   */
+  
+
+
+
+
   static toggleGlobalLoading(show, text = '処理中...') {
     const el = document.getElementById('global-loading');
     const txtEl = document.getElementById('global-loading-text');
@@ -666,6 +666,89 @@ class Utils {
     } else {
       el.classList.add('hidden');
     }
+  }
+
+  
+
+
+
+
+  static extractDriveFileId(url) {
+    if (!url || typeof url !== 'string') return null;
+    const str = url.trim();
+    if (!str) return null;
+
+    
+    const fileDMatch = str.match(/\/file\/d\/([a-zA-Z0-9_-]+)/i);
+    if (fileDMatch) return fileDMatch[1];
+
+    
+    const idParamMatch = str.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+    if (idParamMatch) return idParamMatch[1];
+
+    
+    const dMatch = str.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/i);
+    if (dMatch) return dMatch[1];
+
+    
+    if (/^[a-zA-Z0-9_-]{25,}$/.test(str)) {
+      return str;
+    }
+
+    return null;
+  }
+
+  
+
+
+
+
+
+  static resolveArtworkUrl(url, size = 800) {
+    if (!url || typeof url !== 'string') return '';
+    const trimmed = url.trim();
+    if (!trimmed) return '';
+
+    const driveId = this.extractDriveFileId(trimmed);
+    if (driveId) {
+      return `https://drive.google.com/thumbnail?id=${driveId}&sz=w${size}`;
+    }
+
+    return trimmed;
+  }
+
+  
+
+
+
+  static getDefaultArtworkSvg() {
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect width="24" height="24" fill="#1e293b"/><circle cx="12" cy="12" r="4"/></svg>'
+    );
+  }
+
+  
+
+
+
+
+  static handleImageError(imgEl, originalUrl) {
+    if (!imgEl) return;
+    const rawUrl = originalUrl || imgEl.getAttribute('data-artwork') || '';
+    const step = parseInt(imgEl.getAttribute('data-error-step') || '0', 10);
+    const driveId = this.extractDriveFileId(rawUrl);
+
+    if (driveId && step === 0) {
+      imgEl.setAttribute('data-error-step', '1');
+      imgEl.src = `https://lh3.googleusercontent.com/d/${driveId}`;
+      return;
+    }
+
+    
+    imgEl.setAttribute('data-error-step', '2');
+    imgEl.removeAttribute('data-artwork');
+    imgEl.onerror = null;
+    imgEl.src = this.getDefaultArtworkSvg();
   }
 }
 
@@ -956,6 +1039,18 @@ class App {
 
 
   bindEvents() {
+    
+    window.addEventListener(
+      'error',
+      (e) => {
+        const target = e.target;
+        if (target && target.tagName === 'IMG' && target.hasAttribute('data-artwork')) {
+          Utils.handleImageError(target);
+        }
+      },
+      true
+    );
+
     
     window.addEventListener('resize', Utils.debounce(() => this.handleResize(), 150));
 
@@ -1249,14 +1344,21 @@ class App {
     const html = albums.map((album) => {
       const isSelected = this.store.state.selectedAlbum === album.albumName;
       const borderClass = isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/30' : 'border-slate-800 hover:border-slate-700';
-      const artwork = album.artworkUrl || '';
+      const rawArtwork = album.artworkUrl || '';
+      const resolvedArtwork = Utils.resolveArtworkUrl(rawArtwork, 400);
 
       return `
         <div class="album-card group cursor-pointer bg-slate-900 border ${borderClass} rounded-xl p-2.5 flex flex-col transition hover:bg-slate-800/80 active:scale-95 select-none"
              data-album="${Utils.escapeHtml(album.albumName)}">
           <div class="aspect-square w-full rounded-lg bg-slate-800 overflow-hidden mb-2 relative">
-            ${artwork ? `
-              <img src="${Utils.escapeHtml(artwork)}" alt="art" class="w-full h-full object-cover transition duration-300 group-hover:scale-105" loading="lazy">
+            ${resolvedArtwork ? `
+              <img src="${Utils.escapeHtml(resolvedArtwork)}"
+                   alt="art"
+                   referrerpolicy="no-referrer"
+                   loading="lazy"
+                   class="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                   data-artwork="${Utils.escapeHtml(rawArtwork)}"
+                   data-error-step="0">
             ` : `
               <div class="w-full h-full flex items-center justify-center text-slate-700">
                 <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1288,24 +1390,24 @@ class App {
     });
   }
 
-  
-
-
-
+  /**
+   * アルバム選択時
+   * @param {string} albumName 
+   */
   selectAlbum(albumName) {
     this.store.state.selectedAlbum = albumName;
     this.renderAlbumList();
     this.renderTrackDetail();
 
-    
+    // スマホ時は STEP 3 へ画面遷移
     if (window.innerWidth < 768) {
       this.setMobileStep(3);
     }
   }
 
-  
-
-
+  /**
+   * STEP 3 トラック詳細・ディスク別一覧の描画
+   */
   renderTrackDetail() {
     const album = this.store.getSelectedAlbumData();
     const discsContainer = document.getElementById('track-discs-container');
@@ -1323,7 +1425,7 @@ class App {
     if (emptyState) emptyState.classList.add('hidden');
     if (headerCard) headerCard.classList.remove('hidden');
 
-    
+    // パンくず
     const bcArtist = document.getElementById('breadcrumb-artist');
     const bcAlbum = document.getElementById('breadcrumb-album');
     if (bcArtist) {
@@ -1334,7 +1436,7 @@ class App {
     }
     if (bcAlbum) bcAlbum.textContent = album.albumName;
 
-    
+    // ヘッダー情報
     const hArt = document.getElementById('track-header-artwork');
     const hAlbum = document.getElementById('track-header-album-name');
     const hArtist = document.getElementById('track-header-artist-name');
@@ -1342,17 +1444,19 @@ class App {
     const hTotal = document.getElementById('track-header-total-tracks');
 
     if (hArt) {
-      const defaultArtwork = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect width="24" height="24" fill="#1e293b"/><circle cx="12" cy="12" r="4"/></svg>'
-      );
-      hArt.src = album.artworkUrl || defaultArtwork;
+      const rawArt = album.artworkUrl || '';
+      const resolved = Utils.resolveArtworkUrl(rawArt, 800);
+      hArt.setAttribute('data-artwork', rawArt);
+      hArt.setAttribute('data-error-step', '0');
+      hArt.onerror = () => Utils.handleImageError(hArt, rawArt);
+      hArt.src = resolved || Utils.getDefaultArtworkSvg();
     }
     if (hAlbum) hAlbum.textContent = album.albumName;
     if (hArtist) hArtist.textContent = album.albumArtist;
     if (hDate) hDate.textContent = album.releaseDate ? `発売: ${Utils.formatDate(album.releaseDate)}` : '発売日未設定';
     if (hTotal) hTotal.textContent = `全 ${album.totalTracks} 曲`;
 
-    
+    // ディスク順に描画
     const sortedDiscs = Object.values(album.discs).sort((a, b) => a.cdNumber - b.cdNumber);
 
     const html = sortedDiscs.map((disc) => {
@@ -1397,10 +1501,10 @@ class App {
     discsContainer.innerHTML = html;
   }
 
-  
-
-
-
+  /**
+   * モバイルステップ切り替え
+   * @param {1|2|3} step 
+   */
   setMobileStep(step) {
     this.store.state.mobileStep = step;
     if (window.innerWidth >= 768) return;
@@ -1414,9 +1518,9 @@ class App {
     if (pTracks) pTracks.classList.toggle('hidden', step !== 3);
   }
 
-  
-
-
+  /**
+   * リサイズ時のペイン表示制御
+   */
   handleResize() {
     const pArtists = document.getElementById('pane-artists');
     const pAlbums = document.getElementById('pane-albums');
@@ -1431,10 +1535,10 @@ class App {
     }
   }
 
-  
-
-
-
+  /**
+   * 全体クイック横断検索
+   * @param {string} query 
+   */
   handleGlobalSearch(query) {
     if (!query || !query.trim()) {
       this.store.state.artistFilter = '';
@@ -1448,7 +1552,7 @@ class App {
       return;
     }
 
-    
+    // 最初に見つかった曲のアーティストとアルバムへジャンプ
     const firstMatch = matchedTracks[0];
     this.store.state.selectedArtist = firstMatch.albumArtist;
     this.store.state.selectedAlbum = firstMatch.albumName;
@@ -1461,9 +1565,9 @@ class App {
     }
   }
 
-  
-
-
+  /**
+   * iTunes モーダル表示
+   */
   openItunesModal() {
     const modal = document.getElementById('modal-itunes');
     if (modal) modal.classList.remove('hidden');
@@ -1479,9 +1583,9 @@ class App {
     if (modal) modal.classList.add('hidden');
   }
 
-  
-
-
+  /**
+   * iTunes 検索実行
+   */
   async executeItunesSearch() {
     const input = document.getElementById('itunes-search-input');
     const keyword = input ? input.value.trim() : '';
@@ -1507,9 +1611,9 @@ class App {
     }
   }
 
-  
-
-
+  /**
+   * iTunes 検索結果描画
+   */
   renderItunesResults() {
     const container = document.getElementById('itunes-results-container');
     if (!container) return;
@@ -1546,10 +1650,10 @@ class App {
     });
   }
 
-  
-
-
-
+  /**
+   * iTunes アルバム選択・収録曲Lookupプレビュー
+   * @param {string|number} collectionId 
+   */
   async selectItunesAlbumForPreview(collectionId) {
     const empty = document.getElementById('itunes-preview-empty');
     const content = document.getElementById('itunes-preview-content');
@@ -1596,14 +1700,14 @@ class App {
     }
   }
 
-  
-
-
+  /**
+   * iTunes アルバム一括保存実行
+   */
   async submitItunesBatch() {
     const detail = this.store.state.selectedItunesAlbum;
     if (!detail) return;
 
-    if (this.store.state.isSaving) return; 
+    if (this.store.state.isSaving) return; // 二重送信防止
     this.store.state.isSaving = true;
 
     const btnText = document.getElementById('itunes-batch-btn-text');
@@ -1631,7 +1735,7 @@ class App {
       this.closeItunesModal();
       await this.loadInitialData();
 
-      
+      // 追加したアルバムを選択
       this.store.state.selectedArtist = detail.albumArtist;
       this.store.state.selectedAlbum = detail.albumName;
       this.renderAll();
@@ -1648,10 +1752,10 @@ class App {
     }
   }
 
-  
-
-
-
+  /**
+   * 手動登録モーダル表示
+   * @param {object} preset 
+   */
   openManualModal(preset = {}) {
     const modal = document.getElementById('modal-manual');
     if (modal) modal.classList.remove('hidden');
@@ -1682,9 +1786,9 @@ class App {
     if (modal) modal.classList.add('hidden');
   }
 
-  
-
-
+  /**
+   * 手動楽曲登録送信
+   */
   async submitManualTrack() {
     const form = document.getElementById('form-manual-track');
     if (form && !form.checkValidity()) {
@@ -1734,7 +1838,7 @@ class App {
       this.renderAll();
 
       if (continuous) {
-        
+        // 次の曲番号へインクリメントしてフォーカス
         const trackNoEl = document.getElementById('manual-track-number');
         const trackNameEl = document.getElementById('manual-track-name');
         if (trackNoEl) trackNoEl.value = trackNumber + 1;
@@ -1757,18 +1861,23 @@ class App {
     }
   }
 
-  
-
-
-
-
+  /**
+   * アルバムアート拡大表示
+   * @param {string} url 
+   * @param {string} title 
+   */
   openImageModal(url, title) {
     const modal = document.getElementById('modal-image');
     const img = document.getElementById('image-modal-img');
     const titleEl = document.getElementById('image-modal-title');
     if (!modal || !img) return;
 
-    img.src = url;
+    const rawUrl = url || '';
+    const resolved = Utils.resolveArtworkUrl(rawUrl, 1200);
+    img.setAttribute('data-artwork', rawUrl);
+    img.setAttribute('data-error-step', '0');
+    img.onerror = () => Utils.handleImageError(img, rawUrl);
+    img.src = resolved;
     if (titleEl) titleEl.textContent = title;
     modal.classList.remove('hidden');
   }

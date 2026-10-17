@@ -78,7 +78,7 @@ class DriveService {
    */
   generateWebUrl(fileId) {
     if (!fileId) return '';
-    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
   }
 
   /**

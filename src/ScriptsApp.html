@@ -21,6 +21,18 @@ class App {
    * 全DOMイベントリスナーの登録
    */
   bindEvents() {
+    // 画像読み込みエラーのグローバルフォールバック処理（キャプチャフェーズで捕捉）
+    window.addEventListener(
+      'error',
+      (e) => {
+        const target = e.target;
+        if (target && target.tagName === 'IMG' && target.hasAttribute('data-artwork')) {
+          Utils.handleImageError(target);
+        }
+      },
+      true
+    );
+
     // ウィンドウリサイズ
     window.addEventListener('resize', Utils.debounce(() => this.handleResize(), 150));
 
@@ -314,14 +326,21 @@ class App {
     const html = albums.map((album) => {
       const isSelected = this.store.state.selectedAlbum === album.albumName;
       const borderClass = isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/30' : 'border-slate-800 hover:border-slate-700';
-      const artwork = album.artworkUrl || '';
+      const rawArtwork = album.artworkUrl || '';
+      const resolvedArtwork = Utils.resolveArtworkUrl(rawArtwork, 400);
 
       return `
         <div class="album-card group cursor-pointer bg-slate-900 border ${borderClass} rounded-xl p-2.5 flex flex-col transition hover:bg-slate-800/80 active:scale-95 select-none"
              data-album="${Utils.escapeHtml(album.albumName)}">
           <div class="aspect-square w-full rounded-lg bg-slate-800 overflow-hidden mb-2 relative">
-            ${artwork ? `
-              <img src="${Utils.escapeHtml(artwork)}" alt="art" class="w-full h-full object-cover transition duration-300 group-hover:scale-105" loading="lazy">
+            ${resolvedArtwork ? `
+              <img src="${Utils.escapeHtml(resolvedArtwork)}"
+                   alt="art"
+                   referrerpolicy="no-referrer"
+                   loading="lazy"
+                   class="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                   data-artwork="${Utils.escapeHtml(rawArtwork)}"
+                   data-error-step="0">
             ` : `
               <div class="w-full h-full flex items-center justify-center text-slate-700">
                 <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -407,10 +426,12 @@ class App {
     const hTotal = document.getElementById('track-header-total-tracks');
 
     if (hArt) {
-      const defaultArtwork = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect width="24" height="24" fill="#1e293b"/><circle cx="12" cy="12" r="4"/></svg>'
-      );
-      hArt.src = album.artworkUrl || defaultArtwork;
+      const rawArt = album.artworkUrl || '';
+      const resolved = Utils.resolveArtworkUrl(rawArt, 800);
+      hArt.setAttribute('data-artwork', rawArt);
+      hArt.setAttribute('data-error-step', '0');
+      hArt.onerror = () => Utils.handleImageError(hArt, rawArt);
+      hArt.src = resolved || Utils.getDefaultArtworkSvg();
     }
     if (hAlbum) hAlbum.textContent = album.albumName;
     if (hArtist) hArtist.textContent = album.albumArtist;
@@ -833,7 +854,12 @@ class App {
     const titleEl = document.getElementById('image-modal-title');
     if (!modal || !img) return;
 
-    img.src = url;
+    const rawUrl = url || '';
+    const resolved = Utils.resolveArtworkUrl(rawUrl, 1200);
+    img.setAttribute('data-artwork', rawUrl);
+    img.setAttribute('data-error-step', '0');
+    img.onerror = () => Utils.handleImageError(img, rawUrl);
+    img.src = resolved;
     if (titleEl) titleEl.textContent = title;
     modal.classList.remove('hidden');
   }
