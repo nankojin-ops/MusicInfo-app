@@ -251,6 +251,16 @@ class MusicService {
       throw err;
     }
 
+    let normalizedArtworkUrl = artworkUrl;
+    if (artworkUrl && this.driveService && typeof this.driveService.ensurePublicArtwork === 'function') {
+      try {
+        normalizedArtworkUrl = this.driveService.ensurePublicArtwork(artworkUrl, albumName);
+      } catch (e) {
+        console.warn(`アルバムアートの公開正規化に失敗しました (フォールバック): ${e.message}`);
+        normalizedArtworkUrl = artworkUrl;
+      }
+    }
+
     const saved = this.sheetService.appendSingleTrack({
       cdNumber: cdNumber,
       albumArtist: this.escapeFormula_(albumArtist),
@@ -259,7 +269,7 @@ class MusicService {
       trackNumber: trackNumber,
       trackName: this.escapeFormula_(trackName),
       releaseDate: this.escapeFormula_(releaseDate),
-      artworkUrl: artworkUrl
+      artworkUrl: this.escapeFormula_(normalizedArtworkUrl)
     });
 
     return {
@@ -275,7 +285,20 @@ class MusicService {
   updateAlbum(payload) {
     this.validateAlbumPayload_(payload);
     const { targetKey, album, tracks } = payload;
-    return this.sheetService.updateAlbumBatch(targetKey, album, tracks);
+
+    const normalizedAlbum = { ...album };
+    if (normalizedAlbum.artworkUrl && this.driveService && typeof this.driveService.ensurePublicArtwork === 'function') {
+      try {
+        normalizedAlbum.artworkUrl = this.driveService.ensurePublicArtwork(
+          normalizedAlbum.artworkUrl,
+          normalizedAlbum.albumName || targetKey.originalAlbumName
+        );
+      } catch (e) {
+        console.warn(`アルバムアートの公開正規化に失敗しました (フォールバック): ${e.message}`);
+      }
+    }
+
+    return this.sheetService.updateAlbumBatch(targetKey, normalizedAlbum, tracks);
   }
 
   /**

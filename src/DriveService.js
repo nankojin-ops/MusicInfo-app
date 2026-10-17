@@ -82,6 +82,93 @@ class DriveService {
   }
 
   /**
+   * Google Driveの各種URLまたは文字列からファイルIDを抽出
+   * @param {string} url 
+   * @returns {string|null}
+   */
+  extractDriveFileId(url) {
+    if (!url || typeof url !== 'string') return null;
+    const str = url.trim();
+    if (!str) return null;
+
+    // 1. /file/d/{id}
+    const fileDMatch = str.match(/\/file\/d\/([a-zA-Z0-9_-]+)/i);
+    if (fileDMatch) return fileDMatch[1];
+
+    // 2. id={id} クエリパラメータ (uc?id=, open?id=, thumbnail?id= 等)
+    const idParamMatch = str.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+    if (idParamMatch) return idParamMatch[1];
+
+    // 3. googleusercontent.com/d/{id}
+    const dMatch = str.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/i);
+    if (dMatch) return dMatch[1];
+
+    // 4. 純粋なファイルID (25文字以上の英数字記号)
+    if (/^[a-zA-Z0-9_-]{25,}$/.test(str)) {
+      return str;
+    }
+
+    return null;
+  }
+
+  /**
+   * モバイル・サードパーティCookie遮断環境に最適化された完全公開URLを生成
+   * @param {string} fileId Google Drive ファイルID
+   * @returns {string} https://lh3.googleusercontent.com/d/{fileId}
+   */
+  generatePublicUrl(fileId) {
+    if (!fileId) return '';
+    return `https://lh3.googleusercontent.com/d/${fileId}`;
+  }
+
+  /**
+   * 手動登録または更新されたアルバムアートURLを検査・正規化し、
+   * スマホ未認証環境からでも確実に表示可能な完全公開URLを返却する
+   * 
+   * @param {string} rawUrl ユーザー入力URL
+   * @param {string} albumName アルバム名 (ファイル命名・ログ用)
+   * @returns {string} 正規化された完全公開URL
+   */
+  ensurePublicArtwork(rawUrl, albumName) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return '';
+
+    // 1. Google Drive の URL またはファイルID の場合
+    const driveId = this.extractDriveFileId(trimmed);
+    if (driveId) {
+      if (typeof DriveApp !== 'undefined') {
+        try {
+          const file = DriveApp.getFileById(driveId);
+          this.setPublicSharing(file);
+        } catch (e) {
+          console.warn(`Driveファイルの共有設定変更に失敗しました (ID: ${driveId}): ${e.message}`);
+        }
+      }
+      return this.generatePublicUrl(driveId);
+    }
+
+    // 2. 外部Web画像URL (http/https でDrive以外) の場合
+    if (/^https?:\/\//i.test(trimmed)) {
+      if (typeof DriveApp !== 'undefined' && typeof UrlFetchApp !== 'undefined') {
+        try {
+          const savedUrl = this.downloadAndSaveArtwork(trimmed, albumName);
+          if (savedUrl) {
+            const savedId = this.extractDriveFileId(savedUrl);
+            return savedId ? this.generatePublicUrl(savedId) : savedUrl;
+          }
+        } catch (e) {
+          console.warn(`外部画像のGoogle Drive保存に失敗しました: ${e.message}`);
+        }
+      }
+      return trimmed;
+    }
+
+    // 3. その他・不明な形式
+    return trimmed;
+  }
+
+  /**
    * ファイル名禁止文字をサニタイズ
    * @param {string} name 
    * @returns {string}

@@ -198,7 +198,11 @@ class App {
     if (editArtUrlInput && editArtPreview) {
       editArtUrlInput.addEventListener('input', Utils.debounce((e) => {
         const url = (e.target.value || '').trim();
-        editArtPreview.src = url || Utils.getDefaultArtworkSvg();
+        editArtPreview.onerror = () => {
+          editArtPreview.src = Utils.getDefaultArtworkSvg();
+        };
+        const resolved = url ? Utils.resolveArtworkUrl(url, 400) : '';
+        editArtPreview.src = resolved || Utils.getDefaultArtworkSvg();
       }, 300));
     }
 
@@ -416,6 +420,11 @@ class App {
     }).join('');
 
     container.innerHTML = html;
+
+    // iOS Safariでのエラー捕捉漏れ防止のため、動的生成された各img要素に個別onerrorをバインド
+    container.querySelectorAll('img[data-artwork]').forEach((img) => {
+      img.onerror = () => Utils.handleImageError(img);
+    });
 
     container.querySelectorAll('.album-card').forEach((el) => {
       el.addEventListener('click', () => {
@@ -982,6 +991,9 @@ class App {
     if (dateInput) dateInput.value = album.releaseDate ? Utils.formatDate(album.releaseDate) : '';
     if (artUrlInput) artUrlInput.value = album.artworkUrl || '';
     if (artPreview) {
+      artPreview.onerror = () => {
+        artPreview.src = Utils.getDefaultArtworkSvg();
+      };
       artPreview.src = album.artworkUrl ? Utils.resolveArtworkUrl(album.artworkUrl, 400) : Utils.getDefaultArtworkSvg();
     }
 

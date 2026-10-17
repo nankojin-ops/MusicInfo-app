@@ -107,7 +107,7 @@ class SheetService {
       Number(t.trackNumber) || 1,
       this.escapeFormula_(t.trackName),
       this.escapeFormula_(albumMeta.releaseDate),
-      String(driveArtworkUrl || '').trim()
+      this.escapeFormula_(driveArtworkUrl)
     ]);
 
     const sheet = this.getOrCreateSheet();
@@ -131,7 +131,7 @@ class SheetService {
       Number(trackPayload.trackNumber) || 1,
       this.escapeFormula_(trackPayload.trackName),
       this.escapeFormula_(trackPayload.releaseDate),
-      String(trackPayload.artworkUrl || '').trim()
+      this.escapeFormula_(trackPayload.artworkUrl)
     ];
 
     const sheet = this.getOrCreateSheet();

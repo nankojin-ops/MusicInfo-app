@@ -130,8 +130,9 @@ class Utils {
 
   /**
    * Google Drive等の画像URLをWeb上で確実に表示可能なURLに解決
+   * 優先URL: https://lh3.googleusercontent.com/d/{fileId}
    * @param {string} url 
-   * @param {number} size 
+   * @param {number} [size=800] 
    * @returns {string}
    */
   static resolveArtworkUrl(url, size = 800) {
@@ -141,7 +142,7 @@ class Utils {
 
     const driveId = this.extractDriveFileId(trimmed);
     if (driveId) {
-      return 'https://' + 'drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w' + size;
+      return 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId);
     }
 
     return trimmed;
@@ -158,7 +159,9 @@ class Utils {
   }
 
   /**
-   * 画像読み込み失敗時の多重フォールバック処理
+   * 画像読み込み失敗時の多重フォールバック処理 (3段階保証)
+   * Step 0 (初発): data-error-step="1" に更新し、予備ホスト (drive.google.com/thumbnail) へ切り替え
+   * Step 1 (予備失敗) または Drive以外の画像エラー: data-error-step="2" に更新し、getDefaultArtworkSvg() をセット。ループ防止のため onerror 解除
    * @param {HTMLImageElement} imgEl 
    * @param {string} [originalUrl] 
    */
@@ -170,7 +173,7 @@ class Utils {
 
     if (driveId && step === 0) {
       imgEl.setAttribute('data-error-step', '1');
-      imgEl.src = 'https://' + 'lh3.googleusercontent.com/d/' + encodeURIComponent(driveId);
+      imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w400';
       return;
     }
 

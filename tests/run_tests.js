@@ -79,6 +79,24 @@ const driveService = new DriveService(config);
 
 assert(driveService.sanitizeFileName('Album: Greatest / Hits? *2026*') === 'Album_Greatest_Hits_2026', 'ファイル名サニタイズ');
 assert(driveService.generateWebUrl('abc123xyz') === 'https://drive.google.com/thumbnail?id=abc123xyz&sz=w800', 'Web表示URL生成');
+assert(driveService.extractDriveFileId('https://drive.google.com/file/d/abc1234567890123456789012345/view') === 'abc1234567890123456789012345', 'DriveService: /file/d/ からのID抽出');
+assert(driveService.extractDriveFileId('https://drive.google.com/uc?export=view&id=abc1234567890123456789012345') === 'abc1234567890123456789012345', 'DriveService: ?id= からのID抽出');
+assert(driveService.extractDriveFileId('https://lh3.googleusercontent.com/d/abc1234567890123456789012345') === 'abc1234567890123456789012345', 'DriveService: lh3 からのID抽出');
+assert(driveService.extractDriveFileId('abc1234567890123456789012345') === 'abc1234567890123456789012345', 'DriveService: 25文字以上の生ID抽出');
+assert(driveService.extractDriveFileId('https://example.com/image.jpg') === null, 'DriveService: 非Drive URLでのnull返却');
+assert(driveService.generatePublicUrl('testId123') === 'https://lh3.googleusercontent.com/d/testId123', 'DriveService: 公開URL生成');
+assert(driveService.generatePublicUrl('') === '', 'DriveService: 空IDでの空文字返却');
+assert(
+  driveService.ensurePublicArtwork('https://drive.google.com/file/d/testDriveId1234567890123456/view', 'Album') ===
+  'https://lh3.googleusercontent.com/d/testDriveId1234567890123456',
+  'DriveService: ensurePublicArtwork (Drive URL)'
+);
+assert(
+  driveService.ensurePublicArtwork('https://example.com/cover.jpg', 'Album') ===
+  'https://example.com/cover.jpg',
+  'DriveService: ensurePublicArtwork (外部URL・Node.js環境防御)'
+);
+assert(driveService.ensurePublicArtwork('', 'Album') === '', 'DriveService: ensurePublicArtwork (空文字)');
 
 // 3. ItunesService のテスト
 console.log('\n[3] ItunesService のテスト');
@@ -127,6 +145,29 @@ assertThrows(
   'CD番号0での手動登録例外'
 );
 
+// 手動登録時の ensurePublicArtwork 呼び出し検証
+let capturedAppendPayload = null;
+const mockSheetServiceForAppend = {
+  appendSingleTrack: (payload) => {
+    capturedAppendPayload = payload;
+    return payload;
+  }
+};
+const musicServiceForAppend = new MusicService(config, mockSheetServiceForAppend, driveService, itunesService);
+musicServiceForAppend.saveSingleTrack({
+  cdNumber: 1,
+  albumArtist: 'Test Artist',
+  albumName: 'Test Album',
+  trackArtist: 'Test Artist',
+  trackNumber: 1,
+  trackName: 'Test Track',
+  artworkUrl: 'https://drive.google.com/file/d/saveTestId123456789012345/view'
+});
+assert(
+  capturedAppendPayload && capturedAppendPayload.artworkUrl === 'https://lh3.googleusercontent.com/d/saveTestId123456789012345',
+  'MusicService.saveSingleTrack: ensurePublicArtwork 経由で公開URLに正規化されて保存されること'
+);
+
 // 5. フロントエンド Utils クラスのテスト
 console.log('\n[5] Utils クラスのテスト (XSS & 日付)');
 const utilsContent = fs.readFileSync(path.join(__dirname, '../src/ScriptsUtils.html'), 'utf8');
@@ -154,8 +195,8 @@ assert(Utils.extractDriveFileId('https://is1-ssl.mzstatic.com/image.jpg') === nu
 
 assert(
   Utils.resolveArtworkUrl('https://drive.google.com/uc?export=view&id=testId123', 400) ===
-  'https://drive.google.com/thumbnail?id=testId123&sz=w400',
-  'Google Drive URLのサムネイルURL変換'
+  'https://lh3.googleusercontent.com/d/testId123',
+  'Google Drive URLの公開URL変換'
 );
 assert(
   Utils.resolveArtworkUrl('https://is1-ssl.mzstatic.com/image.jpg', 400) ===
@@ -163,6 +204,30 @@ assert(
   '通常画像URLの維持'
 );
 assert(Utils.resolveArtworkUrl('', 400) === '', '空文字URLの処理');
+
+// handleImageError 多重フォールバックテスト
+const mockImg = {
+  attrs: {},
+  src: '',
+  onerror: () => {},
+  getAttribute(name) { return this.attrs[name] || null; },
+  setAttribute(name, val) { this.attrs[name] = String(val); },
+  removeAttribute(name) { delete this.attrs[name]; }
+};
+
+// Step 0 -> Step 1 (Drive画像エラー時に thumbnail へフォールバック)
+mockImg.setAttribute('data-artwork', 'https://drive.google.com/file/d/mockId12345678901234567890/view');
+mockImg.setAttribute('data-error-step', '0');
+Utils.handleImageError(mockImg);
+assert(mockImg.attrs['data-error-step'] === '1', 'handleImageError: Step 0 から Step 1 への遷移');
+assert(mockImg.src.includes('drive.google.com/thumbnail?id=mockId12345678901234567890'), 'handleImageError: thumbnailへのフォールバック');
+
+// Step 1 -> Step 2 (予備失敗時に SVG へ最終フォールバック)
+Utils.handleImageError(mockImg);
+assert(mockImg.attrs['data-error-step'] === '2', 'handleImageError: Step 1 から Step 2 への遷移');
+assert(mockImg.src.startsWith('data:image/svg+xml'), 'handleImageError: デフォルトSVGへのフォールバック');
+assert(mockImg.onerror === null, 'handleImageError: onerror 解除によるループ防止');
+assert(!mockImg.attrs['data-artwork'], 'handleImageError: data-artwork 属性の除去');
 
 // 6. フロントエンド Store クラスのテスト (ツリー構築 & ソート)
 console.log('\n[6] Store クラスのテスト (MusicCatalog ツリー構築 & 検索)');
@@ -289,12 +354,35 @@ const mockSheetService = {
 const musicServiceWithMock = new MusicService(config, mockSheetService, driveService, itunesService);
 
 // 正常系
-const validResult = musicServiceWithMock.updateAlbum({
+let capturedUpdateAlbum = null;
+const mockSheetServiceWithCapture = {
+  updateAlbumBatch: (targetKey, newAlbumMeta, newTracks) => {
+    capturedUpdateAlbum = newAlbumMeta;
+    return {
+      updatedRowCount: newTracks.length,
+      totalRowCount: newTracks.length,
+      previousRowCount: 2,
+      albumName: newAlbumMeta.albumName,
+      albumArtist: newAlbumMeta.albumArtist
+    };
+  }
+};
+const musicServiceWithCapture = new MusicService(config, mockSheetServiceWithCapture, driveService, itunesService);
+
+const validResult = musicServiceWithCapture.updateAlbum({
   targetKey: { originalAlbumArtist: 'Artist', originalAlbumName: 'Album' },
-  album: { albumArtist: 'New Artist', albumName: 'New Album' },
+  album: {
+    albumArtist: 'New Artist',
+    albumName: 'New Album',
+    artworkUrl: 'https://drive.google.com/file/d/editTestId123456789012345/view'
+  },
   tracks: [{ cdNumber: 1, trackNumber: 1, trackName: 'Track 1' }]
 });
 assert(validResult.updatedRowCount === 1, '正常なアルバム編集処理の成功');
+assert(
+  capturedUpdateAlbum && capturedUpdateAlbum.artworkUrl === 'https://lh3.googleusercontent.com/d/editTestId123456789012345',
+  'MusicService.updateAlbum: ensurePublicArtwork 経由で公開URLに正規化されて保存されること'
+);
 
 // 異常系: targetKey欠落
 assertThrows(

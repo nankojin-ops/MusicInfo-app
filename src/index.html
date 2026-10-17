@@ -487,8 +487,9 @@
         </div>
         <div>
           <label class="block text-xs text-slate-400 mb-1">アートワークURL (任意)</label>
-          <input type="url" id="manual-artwork-url" placeholder="画像URL (例: Drive共有リンクなど)"
+          <input type="text" id="manual-artwork-url" placeholder="Google Driveリンクまたは画像URL (自動でスマホ対応公開設定されます)"
             class="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+          <p class="text-[10px] text-slate-500 mt-1">※Google Drive共有リンクやWeb画像URLを入力すると、自動でスマホ対応の公開URLに変換・設定されます。</p>
         </div>
       </div>
 
@@ -595,8 +596,9 @@
               <label class="block text-xs font-semibold text-slate-300 mb-1">
                 アルバムアートURL (任意)
               </label>
-              <input type="url" id="edit-album-artwork-url" placeholder="https://drive.google.com/uc?id=... または画像URL"
+              <input type="text" id="edit-album-artwork-url" placeholder="Google Driveリンクまたは画像URL (自動でスマホ対応公開設定されます)"
                 class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition">
+              <p class="text-[10px] text-slate-500 mt-1">※Google Drive共有リンクやWeb画像URLを入力すると、自動でスマホ対応の公開URLに変換・設定されます。</p>
             </div>
             <!-- サムネイルプレビュー (80x80) -->
             <div class="flex-shrink-0 pt-5">
@@ -862,6 +864,7 @@ class Utils {
 
 
 
+
   static resolveArtworkUrl(url, size = 800) {
     if (!url || typeof url !== 'string') return '';
     const trimmed = url.trim();
@@ -869,7 +872,7 @@ class Utils {
 
     const driveId = this.extractDriveFileId(trimmed);
     if (driveId) {
-      return 'https://' + 'drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w' + size;
+      return 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId);
     }
 
     return trimmed;
@@ -890,6 +893,8 @@ class Utils {
 
 
 
+
+
   static handleImageError(imgEl, originalUrl) {
     if (!imgEl) return;
     const rawUrl = originalUrl || imgEl.getAttribute('data-artwork') || '';
@@ -898,7 +903,7 @@ class Utils {
 
     if (driveId && step === 0) {
       imgEl.setAttribute('data-error-step', '1');
-      imgEl.src = 'https://' + 'lh3.googleusercontent.com/d/' + encodeURIComponent(driveId);
+      imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w400';
       return;
     }
 
@@ -1430,7 +1435,11 @@ class App {
     if (editArtUrlInput && editArtPreview) {
       editArtUrlInput.addEventListener('input', Utils.debounce((e) => {
         const url = (e.target.value || '').trim();
-        editArtPreview.src = url || Utils.getDefaultArtworkSvg();
+        editArtPreview.onerror = () => {
+          editArtPreview.src = Utils.getDefaultArtworkSvg();
+        };
+        const resolved = url ? Utils.resolveArtworkUrl(url, 400) : '';
+        editArtPreview.src = resolved || Utils.getDefaultArtworkSvg();
       }, 300));
     }
 
@@ -1648,6 +1657,11 @@ class App {
     }).join('');
 
     container.innerHTML = html;
+
+    
+    container.querySelectorAll('img[data-artwork]').forEach((img) => {
+      img.onerror = () => Utils.handleImageError(img);
+    });
 
     container.querySelectorAll('.album-card').forEach((el) => {
       el.addEventListener('click', () => {
@@ -2214,6 +2228,9 @@ class App {
     if (dateInput) dateInput.value = album.releaseDate ? Utils.formatDate(album.releaseDate) : '';
     if (artUrlInput) artUrlInput.value = album.artworkUrl || '';
     if (artPreview) {
+      artPreview.onerror = () => {
+        artPreview.src = Utils.getDefaultArtworkSvg();
+      };
       artPreview.src = album.artworkUrl ? Utils.resolveArtworkUrl(album.artworkUrl, 400) : Utils.getDefaultArtworkSvg();
     }
 
