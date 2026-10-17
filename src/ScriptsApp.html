@@ -195,7 +195,7 @@ class App {
     if (editArtUrlInput && editArtPreview) {
       editArtUrlInput.addEventListener('input', Utils.debounce((e) => {
         const url = (e.target.value || '').trim();
-        editArtPreview.src = url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="%23475569" stroke-width="1.5"><rect width="24" height="24" fill="%231e293b"/><circle cx="12" cy="12" r="4"/></svg>';
+        editArtPreview.src = url || Utils.getDefaultArtworkSvg();
       }, 300));
     }
 
@@ -952,7 +952,7 @@ class App {
     if (dateInput) dateInput.value = album.releaseDate ? Utils.formatDate(album.releaseDate) : '';
     if (artUrlInput) artUrlInput.value = album.artworkUrl || '';
     if (artPreview) {
-      artPreview.src = album.artworkUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="%23475569" stroke-width="1.5"><rect width="24" height="24" fill="%231e293b"/><circle cx="12" cy="12" r="4"/></svg>';
+      artPreview.src = album.artworkUrl ? Utils.resolveArtworkUrl(album.artworkUrl, 400) : Utils.getDefaultArtworkSvg();
     }
 
     // 編集対象トラックを作業用配列に展開（ディープコピー）

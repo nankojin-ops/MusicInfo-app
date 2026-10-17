@@ -600,7 +600,7 @@
             </div>
             <!-- サムネイルプレビュー (80x80) -->
             <div class="flex-shrink-0 pt-5">
-              <img id="edit-album-art-preview" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='1.5'><rect width='24' height='24' fill='%231e293b'/><circle cx='12' cy='12' r='4'/></svg>" alt="preview"
+              <img id="edit-album-art-preview" src="data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23475569%22%20stroke-width%3D%221.5%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20fill%3D%22%231e293b%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%224%22%2F%3E%3C%2Fsvg%3E" alt="preview"
                 class="w-12 h-12 md:w-14 md:h-14 rounded-lg object-cover bg-slate-800 border border-slate-700/80 shadow">
             </div>
           </div>
@@ -1419,7 +1419,7 @@ class App {
     if (editArtUrlInput && editArtPreview) {
       editArtUrlInput.addEventListener('input', Utils.debounce((e) => {
         const url = (e.target.value || '').trim();
-        editArtPreview.src = url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="%23475569" stroke-width="1.5"><rect width="24" height="24" fill="%231e293b"/><circle cx="12" cy="12" r="4"/></svg>';
+        editArtPreview.src = url || Utils.getDefaultArtworkSvg();
       }, 300));
     }
 
@@ -2176,7 +2176,7 @@ class App {
     if (dateInput) dateInput.value = album.releaseDate ? Utils.formatDate(album.releaseDate) : '';
     if (artUrlInput) artUrlInput.value = album.artworkUrl || '';
     if (artPreview) {
-      artPreview.src = album.artworkUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="%23475569" stroke-width="1.5"><rect width="24" height="24" fill="%231e293b"/><circle cx="12" cy="12" r="4"/></svg>';
+      artPreview.src = album.artworkUrl ? Utils.resolveArtworkUrl(album.artworkUrl, 400) : Utils.getDefaultArtworkSvg();
     }
 
     
