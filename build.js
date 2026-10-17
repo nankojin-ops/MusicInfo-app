@@ -283,57 +283,24 @@ if (scriptSectionRegex.test(template)) {
   template = template.replace('</body>', `${combinedScriptBlock}\n</body>`);
 }
 
-// 3. エラーハンドラを head に注入
-// 構文エラーや実行時エラーが発生した際、ブラウザの outerHTML からエラー行を抽出して画面に詳細表示
+// 3. グローバルエラーキャッチャー
+// 外部スクリプトやGoogle内部処理（OAuthダイアログ等）のエラーで画面表示が破壊されないよう、
+// コンソール出力のみに留める（アプリ自体の起動エラーは startApp 内で処理）
 const globalErrorScript = `
   <script>
-    // グローバル初期化エラーキャッチャー
+    // グローバルエラーキャッチャー（コンソールログ出力のみ）
     window.addEventListener('error', function(e) {
       console.error('[Web App Global Error]', e.message, 'at', e.filename, 'line:', e.lineno, 'col:', e.colno, e.error);
-      const loadingText = document.getElementById('global-loading-text');
-      if (loadingText) {
-        let codeSnippet = '';
-        try {
-          const html = document.documentElement.outerHTML;
-          const lines = html.split(/\\r?\\n/);
-          const targetLine = e.lineno;
-          const start = Math.max(0, targetLine - 5);
-          const end = Math.min(lines.length, targetLine + 5);
-          
-          codeSnippet += '--- [エラー行プレビュー (全 ' + lines.length + ' 行中 ' + (start + 1) + ' 〜 ' + end + ' 行)] ---\\n';
-          for (let i = start; i < end; i++) {
-            const num = i + 1;
-            const marker = (num === targetLine) ? '>> ' : '   ';
-            const lineStr = lines[i] || '';
-            codeSnippet += marker + num + ': ' + lineStr + '\\n';
-            if (num === targetLine && e.colno) {
-              const pad = ' '.repeat(String(num).length + 5 + Math.max(0, e.colno - 1));
-              codeSnippet += pad + '^\\n';
-            }
-          }
-        } catch (ex) {
-          codeSnippet = 'コードプレビュー取得失敗: ' + ex.message;
-        }
-
-        const escapeHtml = function(s) {
-          return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        };
-
-        loadingText.innerHTML = 
-          '<div class=\"text-rose-400 font-bold text-base mb-1\">初期化エラー: ' + escapeHtml(e.message) + '</div>' +
-          '<div class=\"text-xs text-slate-400 mb-2 font-mono\">場所: ' + escapeHtml(e.filename) + ' (' + e.lineno + '行, ' + e.colno + '列)</div>' +
-          '<pre class=\"text-left bg-slate-900 text-rose-300 p-3 rounded font-mono text-xs overflow-x-auto max-w-xl mx-auto border border-rose-500/50 whitespace-pre-wrap\">' + escapeHtml(codeSnippet) + '</pre>';
-      }
     });
   </script>
 `;
 
-// 既存のグローバルエラーキャッチャーがあれば置換、なければ <head> 直下に挿入
-const existingCatcherRegex = /<script>\s*\/\/\s*グローバル初期化エラーキャッチャー[\s\S]*?<\/script>/i;
+// 既存のグローバルエラーキャッチャーがあれば置換、なければ </head> 直前に挿入（<base>と<meta charset>の最優先配置を維持）
+const existingCatcherRegex = /<script>\s*\/\/\s*グローバル(?:初期化)?エラーキャッチャー[\s\S]*?<\/script>/i;
 if (existingCatcherRegex.test(template)) {
   template = template.replace(existingCatcherRegex, globalErrorScript.trim());
-} else {
-  template = template.replace('<head>', `<head>${globalErrorScript}`);
+} else if (template.includes('</head>')) {
+  template = template.replace('</head>', `${globalErrorScript.trim()}\n</head>`);
 }
 
 // 出力ファイル書き込み

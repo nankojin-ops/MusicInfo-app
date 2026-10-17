@@ -141,7 +141,7 @@ class Utils {
 
     const driveId = this.extractDriveFileId(trimmed);
     if (driveId) {
-      return `https://drive.google.com/thumbnail?id=${driveId}&sz=w${size}`;
+      return 'https://' + 'drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w' + size;
     }
 
     return trimmed;
@@ -170,7 +170,7 @@ class Utils {
 
     if (driveId && step === 0) {
       imgEl.setAttribute('data-error-step', '1');
-      imgEl.src = `https://lh3.googleusercontent.com/d/${driveId}`;
+      imgEl.src = 'https://' + 'lh3.googleusercontent.com/d/' + encodeURIComponent(driveId);
       return;
     }
 
