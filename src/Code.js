@@ -4,6 +4,12 @@
  * @returns {GoogleAppsScript.HTML.HtmlOutput}
  */
 function doGet(e) {
+  if (e && e.parameter && e.parameter.raw === 'true') {
+    return ContentService.createTextOutput(
+      HtmlService.createHtmlOutputFromFile('index').getContent()
+    ).setMimeType(ContentService.MimeType.TEXT);
+  }
+
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('MusicInfo Manager - 音楽CD・アルバムコレクション管理')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')

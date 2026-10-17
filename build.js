@@ -13,7 +13,6 @@ const OUTPUT_FILE = path.join(SRC_DIR, 'index.html');
 // もし index.template.html が無ければ、現在の index.html の原型をテンプレートとして保存
 if (!fs.existsSync(TEMPLATE_FILE)) {
   const current = fs.readFileSync(OUTPUT_FILE, 'utf8');
-  // include 構文が含まれているか確認
   if (current.includes("include('")) {
     fs.writeFileSync(TEMPLATE_FILE, current, 'utf8');
     console.log('Created index.template.html from current index.html');
@@ -46,8 +45,109 @@ htmlIncludes.forEach(name => {
   }
 });
 
+/**
+ * 安全な JavaScript コメント除去ユーティリティ（ステートマシン方式）
+ * 文字列リテラル（'', "", ``）および正規表現リテラルを破壊せず、
+ * 単一行コメント (//) および複数行コメント (/* ... *\/) のみを除去します。
+ * 改行コードは維持して行構造を保ちます。
+ */
+function stripComments(code) {
+  let result = '';
+  let i = 0;
+  const len = code.length;
+
+  const State = {
+    NORMAL: 0,
+    SINGLE_QUOTE: 1,
+    DOUBLE_QUOTE: 2,
+    TEMPLATE_LITERAL: 3,
+    LINE_COMMENT: 4,
+    BLOCK_COMMENT: 5
+  };
+
+  let state = State.NORMAL;
+  let escape = false;
+
+  while (i < len) {
+    const ch = code[i];
+    const next = i + 1 < len ? code[i + 1] : '';
+
+    switch (state) {
+      case State.NORMAL:
+        if (ch === "'" && !escape) {
+          state = State.SINGLE_QUOTE;
+          result += ch;
+        } else if (ch === '"' && !escape) {
+          state = State.DOUBLE_QUOTE;
+          result += ch;
+        } else if (ch === '`' && !escape) {
+          state = State.TEMPLATE_LITERAL;
+          result += ch;
+        } else if (ch === '/' && next === '/') {
+          state = State.LINE_COMMENT;
+          i++;
+        } else if (ch === '/' && next === '*') {
+          state = State.BLOCK_COMMENT;
+          i++;
+        } else {
+          result += ch;
+        }
+        break;
+
+      case State.SINGLE_QUOTE:
+        result += ch;
+        if (ch === '\\') {
+          escape = !escape;
+        } else {
+          if (ch === "'" && !escape) state = State.NORMAL;
+          escape = false;
+        }
+        break;
+
+      case State.DOUBLE_QUOTE:
+        result += ch;
+        if (ch === '\\') {
+          escape = !escape;
+        } else {
+          if (ch === '"' && !escape) state = State.NORMAL;
+          escape = false;
+        }
+        break;
+
+      case State.TEMPLATE_LITERAL:
+        result += ch;
+        if (ch === '\\') {
+          escape = !escape;
+        } else {
+          if (ch === '`' && !escape) state = State.NORMAL;
+          escape = false;
+        }
+        break;
+
+      case State.LINE_COMMENT:
+        if (ch === '\n' || ch === '\r') {
+          result += ch; // 改行は保持
+          state = State.NORMAL;
+        }
+        break;
+
+      case State.BLOCK_COMMENT:
+        if (ch === '*' && next === '/') {
+          state = State.NORMAL;
+          i++;
+        } else if (ch === '\n' || ch === '\r') {
+          result += ch; // 改行は保持
+        }
+        break;
+    }
+
+    i++;
+  }
+
+  return result;
+}
+
 // 2. JavaScript スクリプトのインクルード（ScriptsUtils, ScriptsApiClient, ScriptsState, ScriptsApp）
-// 各ファイル内の <script> および </script> を除去し、1つのクリーンなスクリプトブロックに結合
 const scriptFiles = [
   'ScriptsUtils',
   'ScriptsApiClient',
@@ -60,12 +160,22 @@ scriptFiles.forEach(name => {
   const filePath = path.join(SRC_DIR, `${name}.html`);
   if (fs.existsSync(filePath)) {
     let content = fs.readFileSync(filePath, 'utf8');
-    // <script> と </script> を確実に除去
+    // <script> と </script> を除去
     content = content.trim();
     if (content.startsWith('<script>')) content = content.substring(8);
     if (content.endsWith('</script>')) content = content.substring(0, content.length - 9);
     content = content.trim();
-    bundledJs += `\n/* ===== [${name}] ===== */\n` + content + '\n';
+
+    // コメントを除去（GASサニタイザーによるマルチバイト文字位置ズレ防止）
+    content = stripComments(content);
+
+    // Node.js テスト用 module.exports ガード文を除去（ブラウザ環境のクリーン化）
+    content = content.replace(/if\s*\(typeof module\s*!==\s*['"]undefined['"]\s*&&\s*module\.exports\)\s*\{[\s\S]*?\}/g, '');
+
+    // 空白文字のトリム
+    content = content.trim();
+
+    bundledJs += `\n/* [${name}] */\n` + content + '\n';
   }
 });
 
@@ -73,19 +183,27 @@ scriptFiles.forEach(name => {
 const scriptSectionRegex = /<\?!=\s*include\('ScriptsUtils'\);?\s*\?>[\s\S]*?<\/script>\s*(?=<\/body>)/i;
 
 const startAppCode = `
-/* ===== [App Launcher] ===== */
+/* [App Launcher] */
 function startApp() {
   try {
-    const AppClass = window.App || (typeof App !== 'undefined' ? App : null);
-    if (!AppClass) {
-      console.error('App クラスがロードされていません');
+    const missing = [];
+    if (!window.Utils && typeof Utils === 'undefined') missing.push('Utils');
+    if (!window.ApiClient && typeof ApiClient === 'undefined') missing.push('ApiClient');
+    if (!window.Store && typeof Store === 'undefined') missing.push('Store');
+    if (!window.App && typeof App === 'undefined') missing.push('App');
+
+    if (missing.length > 0) {
+      const msg = '未ロードのクラス: ' + missing.join(', ');
+      console.error(msg);
       const loadingText = document.getElementById('global-loading-text');
       if (loadingText) {
-        loadingText.textContent = 'App クラスの読み込みに失敗しました';
+        loadingText.textContent = msg;
         loadingText.classList.add('text-rose-400');
       }
       return;
     }
+
+    const AppClass = window.App || App;
     if (!window.app) {
       window.app = new AppClass();
       window.app.init();
@@ -120,8 +238,8 @@ if (scriptSectionRegex.test(template)) {
   template = template.replace('</body>', `${combinedScriptBlock}\n</body>`);
 }
 
-// 3. エラーハンドラと安全な起動処理を head と body に注入/更新
-// headの先頭にグローバルエラーキャッチャーを追加
+// 3. エラーハンドラを head に注入
+// 構文エラーや実行時エラーが発生した際、ブラウザの outerHTML からエラー行を抽出して画面に詳細表示
 const globalErrorScript = `
   <script>
     // グローバル初期化エラーキャッチャー
@@ -129,14 +247,47 @@ const globalErrorScript = `
       console.error('[Web App Global Error]', e.message, 'at', e.filename, 'line:', e.lineno, 'col:', e.colno, e.error);
       const loadingText = document.getElementById('global-loading-text');
       if (loadingText) {
-        loadingText.textContent = '初期化エラー: ' + (e.message || 'スクリプトのロードに失敗しました');
-        loadingText.classList.add('text-rose-400');
+        let codeSnippet = '';
+        try {
+          const html = document.documentElement.outerHTML;
+          const lines = html.split(/\\r?\\n/);
+          const targetLine = e.lineno;
+          const start = Math.max(0, targetLine - 5);
+          const end = Math.min(lines.length, targetLine + 5);
+          
+          codeSnippet += '--- [エラー行プレビュー (全 ' + lines.length + ' 行中 ' + (start + 1) + ' 〜 ' + end + ' 行)] ---\\n';
+          for (let i = start; i < end; i++) {
+            const num = i + 1;
+            const marker = (num === targetLine) ? '>> ' : '   ';
+            const lineStr = lines[i] || '';
+            codeSnippet += marker + num + ': ' + lineStr + '\\n';
+            if (num === targetLine && e.colno) {
+              const pad = ' '.repeat(String(num).length + 5 + Math.max(0, e.colno - 1));
+              codeSnippet += pad + '^\\n';
+            }
+          }
+        } catch (ex) {
+          codeSnippet = 'コードプレビュー取得失敗: ' + ex.message;
+        }
+
+        const escapeHtml = function(s) {
+          return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        };
+
+        loadingText.innerHTML = 
+          '<div class=\"text-rose-400 font-bold text-base mb-1\">初期化エラー: ' + escapeHtml(e.message) + '</div>' +
+          '<div class=\"text-xs text-slate-400 mb-2 font-mono\">場所: ' + escapeHtml(e.filename) + ' (' + e.lineno + '行, ' + e.colno + '列)</div>' +
+          '<pre class=\"text-left bg-slate-900 text-rose-300 p-3 rounded font-mono text-xs overflow-x-auto max-w-xl mx-auto border border-rose-500/50 whitespace-pre-wrap\">' + escapeHtml(codeSnippet) + '</pre>';
       }
     });
   </script>
 `;
 
-if (!template.includes('// グローバル初期化エラーキャッチャー')) {
+// 既存のグローバルエラーキャッチャーがあれば置換、なければ <head> 直下に挿入
+const existingCatcherRegex = /<script>\s*\/\/\s*グローバル初期化エラーキャッチャー[\s\S]*?<\/script>/i;
+if (existingCatcherRegex.test(template)) {
+  template = template.replace(existingCatcherRegex, globalErrorScript.trim());
+} else {
   template = template.replace('<head>', `<head>${globalErrorScript}`);
 }
 
