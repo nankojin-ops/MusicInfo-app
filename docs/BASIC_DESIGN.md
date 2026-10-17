@@ -1,176 +1,782 @@
 # 音楽管理Webアプリケーション 基本設計書
 
-- **文書バージョン**: 1.0.0
+- **文書バージョン**: 1.1.0
 - **作成日**: 2026年10月17日
+- **最終更新日**: 2026年10月17日
 - **作成ロール**: システムアーキテクト／基本設計者 (`basic_designer`)
 - **準拠要件定義書**: `docs/REQUIREMENTS.md` (v1.2.0)
-- **ステータス**: 初版完成（Gate 2 レビュー対象）
+- **ステータス**: オブジェクト指向・役割毎ファイル分割アーキテクチャ改訂版（Gate 2 レビュー対象）
 
 ---
 
 ## 目次
 
 1. [システム基本方針・全体アーキテクチャ設計](#1-システム基本方針全体アーキテクチャ設計)
-   - 1.1 システム設計方針
+   - 1.1 システム設計方針（オブジェクト指向と単一責任原則の徹底）
    - 1.2 技術スタック選定
-   - 1.3 全体システム構成図
-   - 1.4 コンポーネント構成と責務
-   - 1.5 ディレクトリ・ファイル構成
-2. [画面・UI/UX詳細設計](#2-画面uiux詳細設計)
-   - 2.1 レスポンシブ方針とブレークポイント定義
-   - 2.2 画面状態遷移設計
-   - 2.3 PC / タブレット横画面レイアウト（3ペイン横並び）
-   - 2.4 スマートフォン画面レイアウト（ステップドリルダウン遷移方式）
-   - 2.5 iTunes検索・一括登録モーダル設計
-   - 2.6 手動楽曲登録フォーム設計
-   - 2.7 アルバムアート拡大モーダル設計
-3. [データモデル・ストレージ設計](#3-データモデルストレージ設計)
-   - 3.1 概念データモデル・ER図
-   - 3.2 スプレッドシートテーブル定義（案A: 1トラック1行フラット方式）
-   - 3.3 クライアント内部データ構造（メモリキャッシュ）
-   - 3.4 Google Drive ストレージ設計（ファイル規約・権限・Web表示URL）
-4. [外部システム・API連携設計](#4-外部システムapi連携設計)
-   - 4.1 iTunes Search API 連携仕様
-   - 4.2 iTunes Lookup API 連携仕様
-   - 4.3 アルバムアート高精細化（500×500）仕様
-   - 4.4 Google Drive 画像保存・URL発行仕様
-   - 4.5 フロントエンド・バックエンド間 RPC 通信インターフェース仕様
-5. [主要処理フロー・シーケンス設計](#5-主要処理フローシーケンス設計)
-   - 5.1 アプリ起動・全データ初期ロード シーケンス
-   - 5.2 3段階ドリルダウン表示制御フロー
-   - 5.3 iTunes検索 〜 プレビュー 〜 一括登録 シーケンス
-   - 5.4 手動楽曲登録（連続登録アシスト）シーケンス
-   - 5.5 全体クイック検索・インクリメンタルフィルタリング処理フロー
-6. [非機能・セキュリティ・例外設計](#6-非機能セキュリティ例外設計)
-   - 6.1 セキュリティ設計（XSS対策、権限境界）
-   - 6.2 パフォーマンス設計（キャッシュ、バッチ入出力、遅延読込）
-   - 6.3 モバイル・タッチ操作性設計（44pxターゲット、仮想キーボード）
-   - 6.4 エラーハンドリング・例外設計
-   - 6.5 スクリプトプロパティ構成と初期セットアップ設計
+   - 1.3 全体システム構成図（コンポーネント協調構成）
+   - 1.4 ディレクトリ・ファイル構成一覧（役割毎分割）
+   - 1.5 オブジェクト指向クラス図・コンポーネント構成図 (Mermaid)
+2. [バックエンド オブジェクト指向設計 (GAS)](#2-バックエンド-オブジェクト指向設計-gas)
+   - 2.1 設定管理クラス: `Config.js`
+   - 2.2 スプレッドシート永続化サービス: `SheetService.js`
+   - 2.3 Google Drive ストレージサービス: `DriveService.js`
+   - 2.4 iTunes API 連携サービス: `ItunesService.js`
+   - 2.5 業務ロジック統括サービス: `MusicService.js`
+   - 2.6 エントリーポイント & RPCディスパッチャ: `Code.js`
+3. [フロントエンド 役割分割・コンポーネント設計 (HTML / JS)](#3-フロントエンド-役割分割コンポーネント設計-html--js)
+   - 3.1 GAS テンプレート include アーキテクチャ
+   - 3.2 メイン骨格: `index.html`
+   - 3.3 スタイル定義: `Styles.html`
+   - 3.4 ヘッダー・検索ナビゲーション: `Navbar.html`
+   - 3.5 STEP 1 アーティスト一覧: `ArtistList.html`
+   - 3.6 STEP 2 アルバムカード一覧: `AlbumList.html`
+   - 3.7 STEP 3 トラック詳細・ディスク別テーブル: `TrackDetail.html`
+   - 3.8 モーダルコンポーネント群: `ItunesModal.html`, `ManualModal.html`, `ImageModal.html`
+   - 3.9 クライアントロジック層: `ScriptsState.html`, `ScriptsApiClient.html`, `ScriptsApp.html`, `ScriptsUtils.html`
+4. [画面・UI/UX詳細設計](#4-画面uiux詳細設計)
+   - 4.1 レスポンシブ方針とブレークポイント定義
+   - 4.2 画面状態遷移設計
+   - 4.3 PC / タブレット横画面レイアウト（3ペイン横並び）
+   - 4.4 スマートフォン画面レイアウト（ステップドリルダウン遷移方式）
+   - 4.5 モーダル表示仕様（iTunes一括登録、手動登録、ジャケット拡大）
+5. [データモデル・ストレージ設計](#5-データモデルストレージ設計)
+   - 5.1 概念データモデル・ER図
+   - 5.2 スプレッドシートテーブル定義（案A: 1トラック1行フラット方式）
+   - 5.3 クライアント内部データ構造（メモリキャッシュツリー）
+   - 5.4 Google Drive ストレージ仕様（命名規約・公開権限・Web表示URL）
+6. [主要処理フロー・シーケンス設計 (クラス間協調)](#6-主要処理フローシーケンス設計-クラス間協調)
+   - 6.1 アプリ起動・全データ初期ロード シーケンス
+   - 6.2 3段階ドリルダウン表示制御フロー
+   - 6.3 iTunes検索 〜 プレビュー 〜 一括登録 シーケンス
+   - 6.4 手動楽曲登録（連続登録アシスト）シーケンス
+   - 6.5 全体クイック検索・インクリメンタルフィルタリング処理フロー
+7. [非機能・セキュリティ・例外設計](#7-非機能セキュリティ例外設計)
+   - 7.1 セキュリティ設計（XSS対策、権限境界、プロパティ保護）
+   - 7.2 パフォーマンス設計（キャッシュ、バッチ書き込み、遅延読み込み）
+   - 7.3 モバイル・タッチ操作性設計（44pxターゲット、仮想キーボード最適化）
+   - 7.4 エラーハンドリング・例外設計（共通規約・各クラスの責務）
+   - 7.5 スクリプトプロパティ構成と初期セットアップ設計
+8. [まとめと実装フェーズへの引き継ぎ](#8-まとめと実装フェーズへの引き継ぎ)
 
 ---
 
 ## 1. システム基本方針・全体アーキテクチャ設計
 
-### 1.1 システム設計方針
-1. **Google Apps Script（GAS）サーバーレスアーキテクチャ**:
-   - サーバー維持費ゼロ、常時稼働不要。Google アカウントに紐づく Google Workspace（Spreadsheet, Drive）を最大限活用。
-2. **高速レスポンス（クライアントサイド・キャッシング）**:
-   - 起動時にスプレッドシート全行を1回のRPC通信で一括取得し、ブラウザ（JavaScript）内のメモリ上でツリー構造化して保持。
-   - 検索・絞り込み・階層ドリルダウンはクライアント側でミリ秒単位（100ms未満）で完結させ、GAS特有の通信遅延をユーザーに感じさせない。
-3. **デバイス最適化（完全レスポンシブ・アダプティブUI）**:
-   - **PC / タブレット横（幅 768px以上）**: 3ペイン横並びでコレクション全体を俯瞰。
-   - **スマートフォン（幅 768px未満）**: 1画面1ステップのステップドリルダウン遷移方式。上部に「< 戻る」ナビゲーションとパンくずを常備。最小タップターゲット 44px の確保。
-4. **外部音源データの自動化と手動登録の両立**:
-   - iTunes APIによる高解像度（500×500）ジャケット・ディスク番号（CD番号）・全トラックの自動取得＆Google Drive永続化。
-   - 同人・自主制作・限定盤のための手動登録フォーム（連続登録アシスト付き）を初期標準搭載。
+### 1.1 システム設計方針（オブジェクト指向と単一責任原則の徹底）
+
+本システムは、ユーザー要望「**ソースファイルを1つに集約せず、オブジェクト指向のように役割毎に分割する**」に厳格に準拠して設計する。
+
+1. **バックエンド（GAS）の単一責任原則（SRP: Single Responsibility Principle）**:
+   - Google Apps Script（GAS）では同一プロジェクト内のスクリプトファイル（`.js` / `.gs`）が同一グローバルスコープでロードされる特性を活かし、**各役割に特化したES6クラス**を独立したファイルに定義する。
+   - 設定取得、スプレッドシート入出力、Google Driveファイル管理、iTunes外部API連携、およびそれらを協調させる業務ロジックをクラスとして完全に分離する。
+   - エントリーポイント（`Code.js`）は、HTTP要求のハンドリング（`doGet`）およびRPCディスパッチのみを担当する薄いファサード（Facade）とする。
+
+2. **フロントエンドのコンポーネント分割（GAS include方式）**:
+   - GASのHTMLServiceでは通常1ファイルにHTML/CSS/JSを詰め込みがちであるが、本設計では `<?!= include('FileName'); ?>` パターンを採用し、HTMLを役割毎のコンポーネントへ細分化する。
+   - 見た目（ビューコンポーネント）、スタイル（Tailwind/カスタムCSS）、状態管理（`Store` クラス）、非同期API通信（`ApiClient` クラス）、コントローラー（`App` クラス）、共通ユーティリティ（`Utils`）を完全に分離し、高凝集・疎結合な設計を実現する。
+
+3. **クライアントサイド・キャッシングによる高速応答**:
+   - 初期ロード時にスプレッドシート全行を1回のRPC通信で取得し、ブラウザ内メモリ（`Store`）でツリー構造化して保持。階層ドリルダウンや検索をミリ秒単位（100ms未満）で完結させる。
+
+4. **完全レスポンシブ・アダプティブUI**:
+   - PC（幅 768px以上）: 3ペイン横並びでコレクション全体を俯瞰。
+   - スマートフォン（幅 768px未満）: 1画面1ステップのステップドリルダウン遷移方式（上部「< 戻る」ナビゲーション常備、タップターゲット 44px 以上）。
+
+---
 
 ### 1.2 技術スタック選定
 
 | 分類 | 技術・ライブラリ | バージョン/規約 | 選定理由 |
 | :--- | :--- | :--- | :--- |
-| **実行環境** | Google Apps Script (V8 Runtime) | V8 | ES6+（アロー関数、Promise、async/await等）を利用したモダンなコードベース。 |
-| **フロントエンド構文** | HTML5 / Vanilla JavaScript (ES2020+) | ネイティブ | React/Vue等の重量フレームワークを排し、バンドル不要でGAS HTMLServiceと親和性の高い高速描画を実現。 |
+| **実行環境** | Google Apps Script (V8 Runtime) | V8 | ES6+（クラス構文 `class`、アロー関数、Promise、async/await等）を利用したオブジェクト指向設計。 |
+| **フロントエンド構文** | HTML5 / Vanilla JavaScript (ES2020+) | ネイティブ | React/Vue等の重量フレームワークを排し、ビルドレスでGAS HTMLServiceと親和性の高い高速描画を実現。 |
 | **CSS フレームワーク** | Tailwind CSS (CDN版) | 3.x (Play CDN) | ユーティリティファーストによる柔軟かつ保守性の高いレスポンシブ設計（`sm:`, `md:`, `lg:`）。 |
-| **アイコン** | Lucide Icons / Heroicons (SVG埋め込み) | - | 外部フォント依存を排除し、SVGインライン展開により軽量かつオフライン/通信遮断時にも安定表示。 |
+| **アイコン** | Lucide Icons / Heroicons (インラインSVG) | - | 外部フォント依存を排除し、SVGインライン展開により軽量かつ通信遮断時にも安定表示。 |
 | **データベース** | Google スプレッドシート | - | 案A（1トラック1行フラット方式）の採用により、スプレッドシート直接の閲覧・編集が容易。 |
 | **ファイルストレージ** | Google ドライブ | - | 高解像度（500×500）アルバムアートの永続保存と公開Web表示URLの自動生成。 |
 | **外部通信** | `UrlFetchApp` (GAS標準) | - | iTunes APIへのHTTPS GET通信および画像バイナリ（Blob）のダウンロード。 |
 
-### 1.3 全体システム構成図
+---
+
+### 1.3 全体システム構成図（コンポーネント協調構成）
 
 ```mermaid
-flowchart TD
-    subgraph ClientDevice ["クライアント端末 (PC / スマートフォン / タブレット)"]
-        subgraph WebBrowser ["Webブラウザ (SPA)"]
-            IndexHTML["index.html (HTML5 / Tailwind CSS)"]
-            AppController["App.js / Client Logic<br>(メモリ内データキャッシュ & ドリルダウン制御)"]
-            subgraph Views ["画面・UIコンポーネント"]
-                Pane1["STEP 1: アーティスト選択"]
-                Pane2["STEP 2: アルバム選択"]
-                Pane3["STEP 3: トラック詳細"]
-                ModalSearch["iTunes一括登録モーダル"]
-                ModalManual["手動登録フォーム"]
-                ModalImage["ジャケット拡大モーダル"]
-            end
-            AppController --> Views
+flowchart TB
+    subgraph Browser ["クライアント層 (ブラウザ SPA)"]
+        direction TB
+        index["src/index.html (メイン骨格)"]
+        subgraph UI_Components ["UI コンポーネント (include)"]
+            Navbar["Navbar.html (ヘッダー/検索)"]
+            ArtistList["ArtistList.html (STEP 1)"]
+            AlbumList["AlbumList.html (STEP 2)"]
+            TrackDetail["TrackDetail.html (STEP 3)"]
+            Modals["ItunesModal / ManualModal / ImageModal"]
         end
+        subgraph Client_Logic ["フロントエンド ロジック層 (include)"]
+            App["ScriptsApp.html (Controller: App)"]
+            Store["ScriptsState.html (Model: Store)"]
+            ApiClient["ScriptsApiClient.html (Service: ApiClient)"]
+            Utils["ScriptsUtils.html (Helper: Utils)"]
+        end
+        index --> UI_Components
+        index --> Client_Logic
+        App --> Store
+        App --> ApiClient
+        App --> UI_Components
+        App --> Utils
     end
 
-    subgraph GoogleCloud ["Google Apps Script (Web Apps サーバー環境)"]
-        DoGetHandler["doGet() / HtmlService"]
-        RPCHandler["GAS バックエンド API (Code.gs)"]
-        PropsStore["スクリプトプロパティ<br>(SPREADSHEET_ID / DRIVE_FOLDER_ID / SHEET_NAME)"]
-        
-        DoGetHandler --> IndexHTML
-        RPCHandler --> PropsStore
+    subgraph GAS_Server ["GAS サーバー層 (バックエンド オブジェクト指向設計)"]
+        direction TB
+        Code["src/Code.js<br>(doGet, include, api... ディスパッチャ)"]
+        MusicService["src/MusicService.js<br>(業務ロジック統括: MusicService)"]
+        Config["src/Config.js<br>(設定管理: Config)"]
+        SheetService["src/SheetService.js<br>(シートCRUD: SheetService)"]
+        DriveService["src/DriveService.js<br>(Drive保存: DriveService)"]
+        ItunesService["src/ItunesService.js<br>(外部API連携: ItunesService)"]
+
+        Code --> MusicService
+        MusicService --> Config
+        MusicService --> SheetService
+        MusicService --> DriveService
+        MusicService --> ItunesService
     end
 
-    subgraph ExternalAPI ["外部連携"]
-        iTunesSearch["iTunes Search API<br>(https://itunes.apple.com/search)"]
-        iTunesLookup["iTunes Lookup API<br>(https://itunes.apple.com/lookup)"]
+    subgraph Google_Workspace ["Google Workspace リソース"]
+        GSheet[("Google スプレッドシート<br>(MusicTracks: 1トラック1行フラット)")]
+        GDrive[("Google ドライブ<br>(500x500 ジャケット画像)")]
     end
 
-    subgraph GoogleWorkspace ["Google Workspace リソース"]
-        SheetDB[("Google スプレッドシート<br>シート名: MusicTracks<br>(1トラック1行フラット)")]
-        DriveStore[("Google ドライブ<br>指定フォルダ<br>(500x500 ジャケット画像)")]
+    subgraph External_API ["外部サービス"]
+        iTunes["Apple iTunes Search & Lookup API"]
     end
 
-    WebBrowser <-->|"google.script.run (非同期RPC)"| RPCHandler
-    RPCHandler <-->|"UrlFetchApp (HTTPS)"| ExternalAPI
-    RPCHandler <-->|"SpreadsheetApp"| SheetDB
-    RPCHandler <-->|"DriveApp"| DriveStore
+    ApiClient <-->|"google.script.run (非同期RPC)"| Code
+    SheetService <-->|"SpreadsheetApp"| GSheet
+    DriveService <-->|"DriveApp"| GDrive
+    ItunesService <-->|"UrlFetchApp"| iTunes
+    DriveService <-->|"UrlFetchApp (画像DL)"| iTunes
 ```
 
-### 1.4 コンポーネント構成と責務
+---
 
-#### ① クライアント層（フロントエンド SPA）
-- **状態管理（`AppState`）**:
-  - 全楽曲フラットデータ配列（`allTracks`）
-  - アーティスト別階層ツリーキャッシュ（`musicTree`）
-  - 現在のUI状態（選択中アーティスト、選択中アルバム、スマホの現在ステップ、モーダル表示状態）
-- **UIレンダラー（`ViewRenderer`）**:
-  - PC用3ペイン描画 / スマホ用ステップドリルダウン描画の切り替え制御
-  - トラック一覧（Disc番号ごとのグルーピング、スマホ用縦積みレイアウト）のDOM生成
-  - XSS防止サニタイズ（`escapeHtml`）
+### 1.4 ディレクトリ・ファイル構成一覧（役割毎分割）
 
-#### ② バックエンド層（GAS: `Code.gs`）
-- **コントローラー / エントリポイント**:
-  - `doGet()`: `HtmlService.createTemplateFromFile('index').evaluate()` によりWebページを配信。
-- **データアクセス層（DAO）**:
-  - `getAllTracks()`: スプレッドシートから全行取得しJSON形式に変換して返却。
-  - `saveTracksBatch(tracks)`: iTunes検索からの全トラック＋ジャケットDrive保存を一括実行。
-  - `saveTrackSingle(track)`: 手動登録フォームからの1トラック追記実行。
-- **外部サービス連携層**:
-  - `searchItunesAlbums(keyword)`: iTunes Search API へのプロキシ検索。
-  - `lookupItunesAlbumTracks(collectionId)`: iTunes Lookup API より全楽曲および `discNumber`（CD番号）を取得。
-  - `downloadAndSaveArtwork(url, albumName)`: 500×500画像をDriveへ保存しWeb表示URLを生成。
-
-### 1.5 ディレクトリ・ファイル構成
-GASおよびClasp環境での管理を想定したファイル構成とする。
+プロジェクト全体を以下の役割毎のファイル群に分割して構成する。
 
 ```
 MusicInfo-app/
 ├── docs/
-│   ├── REQUIREMENTS.md     # 要件定義書 (v1.2.0)
-│   └── BASIC_DESIGN.md     # 基本設計書 (本書)
+│   ├── REQUIREMENTS.md           # 要件定義書 (v1.2.0)
+│   └── BASIC_DESIGN.md           # 基本設計書 (本書 v1.1.0)
 ├── src/
-│   ├── appsscript.json     # GAS プロジェクトマニフェスト (OAuthスコープ定義等)
-│   ├── Code.js             # GAS サーバーサイドメインロジック (doGet, API関数群)
-│   ├── SheetsDao.js        # スプレッドシート読み書き処理モジュール
-│   ├── DriveDao.js         # Google ドライブ画像保存・URL生成モジュール
-│   ├── ItunesService.js    # iTunes API通信・高解像度URL変換・トラック抽出モジュール
-│   ├── index.html          # WebアプリメインHTML (SPA骨格)
-│   ├── css.html            # Tailwind CSS 読み込み・カスタムスタイル
-│   └── js.html             # フロントエンドJavaScript (状態管理、イベント、DOM制御)
+│   ├── appsscript.json           # GAS マニフェスト (OAuthスコープ定義、V8指定)
+│   │
+│   │   ─── 【GAS バックエンド オブジェクト指向クラス群】 ───
+│   ├── Config.js                 # 設定・スクリプトプロパティ管理クラス (Config)
+│   ├── SheetService.js           # スプレッドシート読み書き・初期化・データ整形クラス (SheetService)
+│   ├── DriveService.js           # Google Drive画像ダウンロード・保存・URL生成クラス (DriveService)
+│   ├── ItunesService.js          # iTunes Search & Lookup API通信・500x500変換・トラック抽出 (ItunesService)
+│   ├── MusicService.js           # 業務ロジック統括クラス (MusicService)
+│   ├── Code.js                   # Web Appsエントリポイント (doGet, include, apiディスパッチャ)
+│   │
+│   │   ─── 【フロントエンド UI コンポーネント (HTML)】 ───
+│   ├── index.html                # メイン骨格 (3ペイン & スマホステップレイアウト、include呼出)
+│   ├── Styles.html               # Tailwind CSS設定、カスタムスクロールバー、ユーティリティCSS
+│   ├── Navbar.html               # ヘッダー、全体検索バー、手動/iTunes登録ボタン
+│   ├── ArtistList.html           # STEP 1 アーティスト一覧コンポーネント (インクリメンタル絞り込み)
+│   ├── AlbumList.html            # STEP 2 アルバムカード一覧コンポーネント (戻るボタン含む)
+│   ├── TrackDetail.html          # STEP 3 トラック詳細・ディスク別テーブルコンポーネント (パンくず含む)
+│   ├── ItunesModal.html          # iTunes一括検索・プレビュー登録モーダル
+│   ├── ManualModal.html          # 手動楽曲登録フォーム (連続入力アシスト・テンキー対応)
+│   ├── ImageModal.html           # アルバムアート 500x500 拡大プレビューモーダル
+│   │
+│   │   ─── 【フロントエンド ロジック クラス群 (JavaScript)】 ───
+│   ├── ScriptsState.html         # フロントエンド状態管理クラス (Store)
+│   ├── ScriptsApiClient.html     # バックエンド非同期通信クライアントクラス (ApiClient)
+│   ├── ScriptsApp.html           # アプリケーションコントローラークラス (App)
+│   └── ScriptsUtils.html         # XSSサニタイズ (escapeHtml)、トースト通知等のユーティリティ (Utils)
 └── README.md
 ```
 
 ---
 
-## 2. 画面・UI/UX詳細設計
+### 1.5 オブジェクト指向クラス図・コンポーネント構成図 (Mermaid)
 
-### 2.1 レスポンシブ方針とブレークポイント定義
+#### ① バックエンド クラス図 (GAS)
+
+```mermaid
+classDiagram
+    class Code {
+        <<Facade / Dispatcher>>
+        +doGet(e) HtmlOutput
+        +include(filename) String
+        +apiGetAllData() Object
+        +apiSearchItunes(keyword) Object
+        +apiLookupItunesAlbum(collectionId) Object
+        +apiSaveAlbumBatch(payload) Object
+        +apiSaveTrackSingle(track) Object
+    }
+
+    class MusicService {
+        <<Coordinator>>
+        -Config config
+        -SheetService sheetService
+        -DriveService driveService
+        -ItunesService itunesService
+        +getAllMusicData() Object
+        +searchItunesAlbums(keyword) Array
+        +lookupItunesAlbum(collectionId) Object
+        +saveAlbumFromItunes(payload) Object
+        +saveSingleTrack(track) Object
+    }
+
+    class Config {
+        <<Configuration>>
+        -String spreadsheetId
+        -String driveFolderId
+        -String sheetName
+        +getSpreadsheetId() String
+        +getDriveFolderId() String
+        +getSheetName() String
+        +validate() Boolean
+    }
+
+    class SheetService {
+        <<Repository>>
+        -Config config
+        +getOrCreateSheet() Sheet
+        +fetchAllTracks() Array~RawTrackRow~
+        +insertTracksBatch(tracks) Number
+        +appendSingleTrack(track) RawTrackRow
+        +initHeaderIfEmpty(sheet) void
+    }
+
+    class DriveService {
+        <<StorageService>>
+        -Config config
+        +downloadAndSaveArtwork(imageUrl, albumName) String
+        +setPublicSharing(file) void
+        +generateWebUrl(fileId) String
+        -sanitizeFileName(name) String
+    }
+
+    class ItunesService {
+        <<ExternalApiService>>
+        +searchAlbums(term) Array~AlbumSummary~
+        +lookupAlbumSongs(collectionId) Object~AlbumDetail~
+        +convertTo500x500ArtworkUrl(url100) String
+    }
+
+    Code ..> MusicService : delegate
+    MusicService --> Config : uses
+    MusicService --> SheetService : uses
+    MusicService --> DriveService : uses
+    MusicService --> ItunesService : uses
+    SheetService --> Config : uses
+    DriveService --> Config : uses
+```
+
+#### ② フロントエンド コンポーネント・クラス構成図
+
+```mermaid
+classDiagram
+    class App {
+        <<Controller>>
+        -Store store
+        -ApiClient apiClient
+        -Utils utils
+        +init() void
+        +loadInitialData() Promise
+        +handleArtistSelect(artistName) void
+        +handleAlbumSelect(albumName) void
+        +handleBackToArtists() void
+        +handleBackToAlbums() void
+        +openItunesModal() void
+        +openManualModal(presetData) void
+        +openImageModal(imageUrl, albumName) void
+        +render() void
+    }
+
+    class Store {
+        <<Model / State>>
+        -Array allTracks
+        -Object musicTree
+        -String selectedArtist
+        -String selectedAlbum
+        -Number currentStep
+        -String searchQuery
+        +setTracks(tracks) void
+        +buildCatalogTree() void
+        +setSelectedArtist(artist) void
+        +setSelectedAlbum(album) void
+        +setCurrentStep(step) void
+        +getFilteredArtists(filterText) Array
+        +getSelectedAlbumData() Object
+    }
+
+    class ApiClient {
+        <<Service / RPC>>
+        +getAllData() Promise
+        +searchItunes(keyword) Promise
+        +lookupItunes(collectionId) Promise
+        +saveAlbumBatch(payload) Promise
+        +saveTrackSingle(track) Promise
+        -callGAS(functionName, args) Promise
+    }
+
+    class Utils {
+        <<Helper>>
+        +escapeHtml(str) String
+        +showToast(message, type) void
+        +formatDate(isoString) String
+        +debounce(func, wait) Function
+    }
+
+    class UIViews {
+        <<HTML Components>>
+        +Navbar (検索バー・登録ボタン)
+        +ArtistList (STEP 1: アーティスト一覧)
+        +AlbumList (STEP 2: アルバム一覧)
+        +TrackDetail (STEP 3: トラック・ディスク別一覧)
+        +ItunesModal (iTunes検索・プレビュー)
+        +ManualModal (手動連続入力フォーム)
+        +ImageModal (ジャケット拡大)
+    }
+
+    App --> Store : owns & updates
+    App --> ApiClient : uses
+    App --> Utils : uses
+    App ..> UIViews : binds events & updates DOM
+```
+
+---
+
+## 2. バックエンド オブジェクト指向設計 (GAS)
+
+### 2.1 設定管理クラス: `src/Config.js`
+
+#### 責務
+- GASのスクリプトプロパティ（`PropertiesService.getScriptProperties()`）から環境依存値（スプレッドシートID、Google DriveフォルダID、シート名）を読み込み、安全にカプセル化して提供する。
+- 必須プロパティの欠落を検知し、わかりやすい例外メッセージを送出する。
+
+#### クラス定義概要
+```javascript
+class Config {
+  constructor() {
+    const props = PropertiesService.getScriptProperties().getProperties();
+    this.spreadsheetId = props.SPREADSHEET_ID || '';
+    this.driveFolderId = props.DRIVE_FOLDER_ID || '';
+    this.sheetName = props.SHEET_NAME || 'MusicTracks';
+  }
+
+  getSpreadsheetId() {
+    if (!this.spreadsheetId) throw new Error('CONFIG_ERROR: SPREADSHEET_ID が未設定です。スクリプトプロパティを確認してください。');
+    return this.spreadsheetId;
+  }
+
+  getDriveFolderId() {
+    if (!this.driveFolderId) throw new Error('CONFIG_ERROR: DRIVE_FOLDER_ID が未設定です。スクリプトプロパティを確認してください。');
+    return this.driveFolderId;
+  }
+
+  getSheetName() {
+    return this.sheetName;
+  }
+
+  validate() {
+    return Boolean(this.spreadsheetId && this.driveFolderId);
+  }
+}
+```
+
+---
+
+### 2.2 スプレッドシート永続化サービス: `src/SheetService.js`
+
+#### 責務
+- スプレッドシート（案A: 1トラック1行フラット方式）に対する読み込み・書き込み・自動初期化・データ整形を専任で行う。
+- シートの存在確認および未存在時のヘッダー自動作成（初期化）。
+- 全データの2次元配列からオブジェクト配列へのマッピング変換。
+- 複数トラックの一括挿入（`setValues`）および単一トラックの追記（`appendRow`）。
+
+#### 主要メソッド設計
+- `getOrCreateSheet()`: シート名で取得。無ければ作成しヘッダー（8列）を初期化・1行固定。
+- `fetchAllTracks()`: 全行データを取得し、`RawTrackRow` 配列に整形して返却。
+- `insertTracksBatch(tracks)`: 配列データを2次元配列に変換し、最終行の後ろに一括挿入。
+- `appendSingleTrack(track)`: 手動登録の1件を末尾行に追加。
+
+---
+
+### 2.3 Google Drive ストレージサービス: `src/DriveService.js`
+
+#### 責務
+- iTunesから取得した 500×500 解像度画像のBlobをダウンロードし、Google Driveの指定フォルダへ永続保存する。
+- 保存したファイルの共有アクセス権を「リンクを知っている全員が閲覧可能」に設定。
+- スプレッドシートおよびWeb UIで表示可能な公開URL（`https://drive.google.com/uc?export=view&id={fileId}` 等）を発行する。
+- ファイル名サニタイズ（禁止文字 `\/:*?"<>|` を `_` に置換）および重複防止タイムスタンプ付与。
+
+#### 主要メソッド設計
+- `downloadAndSaveArtwork(imageUrl500, albumName)`: 画像ダウンロードから保存・共有設定・Web表示URL返却までを一括実行。
+- `setPublicSharing(file)`: ファイルの閲覧権限を設定。
+- `generateWebUrl(fileId)`: 表示用URL文字列を生成。
+- `sanitizeFileName(name)`: ファイル名として安全な文字列に置換。
+
+---
+
+### 2.4 iTunes API 連携サービス: `src/ItunesService.js`
+
+#### 責務
+- Apple 公式 iTunes Search API & Lookup API との通信（`UrlFetchApp`）を担当。
+- 日本国内（`country=jp`）優先の検索クエリ構築。
+- アルバムアートURLの高解像度化（`100x100bb` → `500x500bb` 置換）。
+- Lookup API レスポンスから、アルバムメタデータおよびトラック情報（特に確定仕様の `discNumber` ＝ CD番号）を抽出・正規化。
+
+#### 主要メソッド設計
+- `searchAlbums(term)`: キーワードからアルバムリスト（`entity=album`）を最大25件検索。
+- `lookupAlbumSongs(collectionId)`: アルバムIDから全トラック一覧（`wrapperType=track`）およびディスク番号を取得。
+- `convertTo500x500ArtworkUrl(url100)`: 正規表現を用いて 500×500 高精細URLへ変換。
+
+---
+
+### 2.5 業務ロジック統括サービス: `src/MusicService.js`
+
+#### 責務
+- ドメインロジックの調整役（オーケストレーター）。
+- `Config`, `SheetService`, `DriveService`, `ItunesService` を協調させ、ユースケース（閲覧全データ取得、iTunes一括登録、手動登録）を実行する。
+- トランザクション的な処理（iTunes一括登録時に「Driveへ画像保存」→「発行URLとトラックデータを組み合わせてSheetへ一括書き込み」）を一貫して制御。
+
+#### 主要メソッド設計
+- `getAllMusicData()`: `SheetService` から全曲データを取得し、件数等のメタ情報を付与して返却。
+- `searchItunesAlbums(keyword)`: `ItunesService` を呼び出して候補アルバムを検索。
+- `lookupItunesAlbum(collectionId)`: `ItunesService` を呼び出してトラックプレビュー・CD番号・500x500画像を返却。
+- `saveAlbumFromItunes(payload)`:
+  1. `DriveService.downloadAndSaveArtwork` で 500x500 ジャケットを保存しWeb表示URLを取得。
+  2. 各トラックデータにDriveのWeb表示URLを付与。
+  3. `SheetService.insertTracksBatch` で一括保存。
+- `saveSingleTrack(track)`: `SheetService.appendSingleTrack` で手動入力行を保存。
+
+---
+
+### 2.6 エントリーポイント & RPCディスパッチャ: `src/Code.js`
+
+#### 責務
+- GASのWeb Apps規格に対応するグローバル関数のみを定義。
+- `doGet(e)`: `index.html` テンプレートを評価（evaluate）してHTMLレスポンスを出力。
+- `include(filename)`: HTMLServiceのテンプレート内で別ファイルをインクルードするためのヘルパー関数。
+- フロントエンドからの `google.script.run` RPCリクエストを受信し、`MusicService` のインスタンスに処理を委譲。
+- グローバルな例外捕捉（`try-catch`）を行い、フロントエンドが扱いやすい `{ success: boolean, data?: any, error?: string }` 形式でレスポンスを返却。
+
+#### 主要関数設計
+```javascript
+// doGet: Web Apps エントリーポイント
+function doGet(e) {
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .setTitle('MusicInfo Manager')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// include ヘルパー関数
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+// サービスシングルトン取得ヘルパー
+function getMusicService() {
+  const config = new Config();
+  const sheetService = new SheetService(config);
+  const driveService = new DriveService(config);
+  const itunesService = new ItunesService();
+  return new MusicService(config, sheetService, driveService, itunesService);
+}
+
+// RPC ディスパッチャ群
+function apiGetAllData() {
+  try {
+    return { success: true, data: getMusicService().getAllMusicData() };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function apiSearchItunes(keyword) {
+  try {
+    return { success: true, data: getMusicService().searchItunesAlbums(keyword) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function apiLookupItunesAlbum(collectionId) {
+  try {
+    return { success: true, data: getMusicService().lookupItunesAlbum(collectionId) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function apiSaveAlbumBatch(payload) {
+  try {
+    return { success: true, data: getMusicService().saveAlbumFromItunes(payload) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function apiSaveTrackSingle(track) {
+  try {
+    return { success: true, data: getMusicService().saveSingleTrack(track) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+```
+
+---
+
+## 3. フロントエンド 役割分割・コンポーネント設計 (HTML / JS)
+
+### 3.1 GAS テンプレート include アーキテクチャ
+
+GAS HTMLService の制限（単一のHTMLOutputを返す）を克服し、メンテナンス性を最大化するため、**テンプレートインクルード構文**を活用する。
+
+#### `src/index.html` のインクルード構造
+```html
+<!DOCTYPE html>
+<html lang="ja" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <title>MusicInfo Manager</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- スタイルコンポーネント include -->
+  <?!= include('Styles'); ?>
+</head>
+<body class="h-full flex flex-col overflow-hidden font-sans antialiased select-none">
+
+  <!-- ヘッダーコンポーネント include -->
+  <?!= include('Navbar'); ?>
+
+  <!-- メインコンテンツ (PC: 3ペイン / スマホ: ステップ切り替え) -->
+  <main class="flex-1 flex overflow-hidden relative">
+    <?!= include('ArtistList'); ?>
+    <?!= include('AlbumList'); ?>
+    <?!= include('TrackDetail'); ?>
+  </main>
+
+  <!-- モーダルコンポーネント群 include -->
+  <?!= include('ItunesModal'); ?>
+  <?!= include('ManualModal'); ?>
+  <?!= include('ImageModal'); ?>
+
+  <!-- フロントエンド ロジック層 (JavaScript) include -->
+  <?!= include('ScriptsUtils'); ?>
+  <?!= include('ScriptsApiClient'); ?>
+  <?!= include('ScriptsState'); ?>
+  <?!= include('ScriptsApp'); ?>
+
+</body>
+</html>
+```
+
+---
+
+### 3.2 フロントエンド各ファイルの責務と構成
+
+#### ① スタイル定義: `src/Styles.html`
+- Tailwind CSS のカラーテーマ拡張（ダークモード、アクセントカラー `indigo` / `violet`）。
+- スクロールバーのカスタマイズ（幅 4px〜6px、透過バー）。
+- スマホ表示時のタップハイライト消去（`-webkit-tap-highlight-color: transparent`）。
+- アニメーション（フェードイン、スピナー回転、スライドイン）。
+
+#### ② ヘッダーコンポーネント: `src/Navbar.html`
+- アプリロゴ & タイトル。
+- 全体クイック検索入力欄（曲名・アルバム名・アーティスト名・CD番号横断）。
+- 登録アクションボタン群:
+  - `[+ 手動登録]` ボタン（スマホ時はコンパクト表示）
+  - `[+ iTunes検索で登録]` ボタン（スマホ時はコンパクト表示）
+- 全体データ同期ステータス・ローディングバッジ。
+
+#### ③ STEP 1 アーティスト一覧コンポーネント: `src/ArtistList.html`
+- PC: 左側固定幅ペイン（幅 260px〜300px）。
+- スマホ: STEP 1 表示ペイン（全画面幅）。
+- アーティスト内インクリメンタル検索フィルター入力欄。
+- 五十音・アルファベット順にソートされたアーティスト一覧リスト。
+- 各行に保有アルバム数バッジ、タップターゲット高さ 44px 以上の確保。
+
+#### ④ STEP 2 アルバムカード一覧コンポーネント: `src/AlbumList.html`
+- PC: 中央ペイン（幅 320px〜380px）。
+- スマホ: STEP 2 表示ペイン（全画面幅）。
+- **スマホ専用ナビゲーションヘッダー**: 「`< アーティスト一覧に戻る`」ボタン（高さ 44px 以上）。
+- 選択中アーティスト名バナーおよびアルバム総数バッジ。
+- アルバムカードグリッド（ジャケットサムネイル、アルバム名、発売年、収録トラック数）。
+
+#### ⑤ STEP 3 トラック詳細・ディスク別テーブルコンポーネント: `src/TrackDetail.html`
+- PC: 右側ペイン（残り全幅、フレキシブル）。
+- スマホ: STEP 3 表示ペイン（全画面幅）。
+- **スマホ専用ナビゲーションヘッダー**: 「`< アルバム一覧に戻る`」ボタン。
+- **パンくずナビゲーション**: 「`アーティスト名 > アルバム名`」。
+- アルバムヘッダー情報: ジャケット画像（タップで拡大）、アルバム名、アーティスト名、発売日、総曲数、「このアルバムに曲を追加」ボタン。
+- **ディスク別トラック一覧表示**:
+  - 複数枚組アルバム時の「Disc 1 (CD番号: 1)」「Disc 2 (CD番号: 2)」セクション区切り。
+  - PCではテーブル形式（曲順、曲名、アーティスト名）。
+  - スマホでは横スクロールなしのコンパクト縦積みリスト形式。
+
+#### ⑥ モーダルコンポーネント群
+- `src/ItunesModal.html`:
+  - アルバム/アーティスト名検索バー、候補アルバム一覧リスト。
+  - 選択アルバムの全トラック一覧プレビュー、CD番号（`discNumber`）確認。
+  - 500x500 高精細ジャケット画像のプレビュー。
+  - 「一括登録」ボタンおよび登録中プログレススピナー。
+  - スマホでは全画面/ボトムシート形式で仮想キーボード対応。
+- `src/ManualModal.html`:
+  - 必須8項目に対応した手動入力フォーム。
+  - CD番号・トラック番号に `type="number" inputmode="numeric"`（テンキー自動起動）。
+  - 「★ 登録して続けて入力」ボタン（アルバム情報保持・トラック番号 +1 インクリメント・曲名に自動フォーカス）。
+  - 「登録して閉じる」ボタン。
+- `src/ImageModal.html`:
+  - 500×500 オリジナルジャケット画像のフルサイズオーバーレイ。
+  - 背景タップで即座に閉じる。
+
+---
+
+### 3.3 クライアントロジック層のクラス設計
+
+#### ① フロントエンド状態管理クラス: `src/ScriptsState.html` (`Store`)
+```javascript
+class Store {
+  constructor() {
+    this.allTracks = [];       // フラット行データ配列
+    this.catalogTree = {};     // アーティスト > アルバム > ディスク > トラック 階層ツリー
+    this.selectedArtist = '';  // 選択中アーティスト名
+    this.selectedAlbum = '';   // 選択中アルバム名
+    this.currentStep = 1;      // スマホ表示用ステップ (1, 2, 3)
+    this.artistFilter = '';    // アーティスト絞り込み文字
+    this.quickSearch = '';     // 全体クイック検索文字
+  }
+
+  setRawTracks(tracks) {
+    this.allTracks = tracks;
+    this.buildCatalogTree();
+  }
+
+  buildCatalogTree() {
+    const tree = {};
+    for (const t of this.allTracks) {
+      const art = t.albumArtist || '不明なアーティスト';
+      const alb = t.albumName || '不明なアルバム';
+      const disc = t.cdNumber || 1;
+
+      if (!tree[art]) tree[art] = { artistName: art, albums: {}, albumCount: 0 };
+      if (!tree[art].albums[alb]) {
+        tree[art].albums[alb] = {
+          albumName: alb,
+          albumArtist: art,
+          releaseDate: t.releaseDate || '',
+          artworkUrl: t.artworkUrl || '',
+          discs: {},
+          totalTracks: 0
+        };
+        tree[art].albumCount++;
+      }
+      const albumObj = tree[art].albums[alb];
+      if (!albumObj.discs[disc]) {
+        albumObj.discs[disc] = { cdNumber: disc, tracks: [] };
+      }
+      albumObj.discs[disc].tracks.push({
+        trackNumber: Number(t.trackNumber) || 0,
+        trackName: t.trackName || '',
+        trackArtist: t.trackArtist || art,
+        cdNumber: disc
+      });
+      albumObj.totalTracks++;
+    }
+
+    // 各ディスク内でトラック番号順にソート
+    for (const art in tree) {
+      for (const alb in tree[art].albums) {
+        for (const disc in tree[art].albums[alb].discs) {
+          tree[art].albums[alb].discs[disc].tracks.sort((a, b) => a.trackNumber - b.trackNumber);
+        }
+      }
+    }
+    this.catalogTree = tree;
+  }
+
+  getFilteredArtists() {
+    const query = this.artistFilter.trim().toLowerCase();
+    const artists = Object.keys(this.catalogTree).sort((a, b) => a.localeCompare(b, 'ja'));
+    if (!query) return artists;
+    return artists.filter(name => name.toLowerCase().includes(query));
+  }
+}
+```
+
+#### ② バックエンド通信クライアントクラス: `src/ScriptsApiClient.html` (`ApiClient`)
+```javascript
+class ApiClient {
+  static call(actionName, payload = null) {
+    return new Promise((resolve, reject) => {
+      const runner = google.script.run
+        .withSuccessHandler(response => {
+          if (response && response.success) {
+            resolve(response.data);
+          } else {
+            reject(new Error(response?.error || '通信エラーが発生しました。'));
+          }
+        })
+        .withFailureHandler(err => {
+          reject(new Error(err.message || 'GASサーバー接続エラー'));
+        });
+
+      if (payload !== null) {
+        runner[actionName](payload);
+      } else {
+        runner[actionName]();
+      }
+    });
+  }
+
+  static getAllData() {
+    return this.call('apiGetAllData');
+  }
+
+  static searchItunes(keyword) {
+    return this.call('apiSearchItunes', keyword);
+  }
+
+  static lookupItunes(collectionId) {
+    return this.call('apiLookupItunesAlbum', collectionId);
+  }
+
+  static saveAlbumBatch(payload) {
+    return this.call('apiSaveAlbumBatch', payload);
+  }
+
+  static saveTrackSingle(track) {
+    return this.call('apiSaveTrackSingle', track);
+  }
+}
+```
+
+#### ③ アプリケーションコントローラークラス: `src/ScriptsApp.html` (`App`)
+- 全体のライフサイクル管理、イベントリスナー登録、DOM更新ディスパッチ。
+- スマホでの画面ステップ切り替え（`currentStep` に応じて `.hidden` クラスを制御）。
+- モーダル表示制御、ローディングスピナー制御。
+
+#### ④ 共通ユーティリティ: `src/ScriptsUtils.html` (`Utils`)
+- `escapeHtml(str)`: XSS防止のサニタイズ関数。
+- `showToast(msg, type)`: トースト通知の動的表示（成功/エラー/情報）。
+- `debounce(fn, delay)`: インクリメンタル検索の負荷軽減。
+
+---
+
+## 4. 画面・UI/UX詳細設計
+
+### 4.1 レスポンシブ方針とブレークポイント定義
 
 Tailwind CSS標準ブレークポイントに準拠し、CSSメディアクエリとJavaScriptの画面リサイズ検知を組み合わせる。
 
@@ -179,7 +785,9 @@ Tailwind CSS標準ブレークポイントに準拠し、CSSメディアクエ�
 | **`mobile` (base)** | 320px 〜 767px | iPhone SE, 13/14/15, Galaxy, Pixel | **ステップドリルダウン方式（1画面1ステップ）**。<br>上部ナビゲーション（戻るボタン、パンくず）。トラックは縦積み。モーダルはフルスクリーン/ボトムシート。 |
 | **`tablet` / `pc` (`md:`〜)** | 768px 以上 | iPad (横), ノートPC, デスクトップ | **3ペイン横並び同時表示**。<br>左: アーティスト一覧(250px〜300px)、中央: アルバム一覧(300px〜350px)、右: トラック詳細(残り全幅)。モーダルは中央ダイアログ。 |
 
-### 2.2 画面状態遷移設計
+---
+
+### 4.2 画面状態遷移設計
 
 #### スマートフォンにおけるステップドリルダウン遷移図
 
@@ -232,7 +840,9 @@ stateDiagram-v2
     Modal_Manual --> Step3_Tracks: 登録して閉じる (自動更新)
 ```
 
-### 2.3 PC / タブレット横画面レイアウト（3ペイン横並び）
+---
+
+### 4.3 PC / タブレット横画面レイアウト（3ペイン横並び）
 
 PC表示（`md:` 以上）では画面を3ペインに分割し、ブラウジングと詳細確認をスムーズに行える構成とする。
 
@@ -258,11 +868,13 @@ PC表示（`md:` 以上）では画面を3ペインに分割し、ブラウジ�
 +--------------------------------------------------------------------------------------------------------------------+
 ```
 
-### 2.4 スマートフォン画面レイアウト（ステップドリルダウン遷移方式）
+---
+
+### 4.4 スマートフォン画面レイアウト（ステップドリルダウン遷移方式）
 
 スマホ表示（`md:` 未満）では画面全体を1ステップに割り当て、片手親指で自然に操作できるタッチUIを提供する。
 
-#### ① STEP 1: アーティスト一覧画面
+#### ① STEP 1: アーティスト一覧画面 (`src/ArtistList.html`)
 ```
 +------------------------------------------+
 | [Logo] MusicInfo       [+ 手動]  [+ iTunes] |
@@ -286,7 +898,7 @@ PC表示（`md:` 以上）では画面を3ペインに分割し、ブラウジ�
 +------------------------------------------+
 ```
 
-#### ② STEP 2: アルバム選択画面
+#### ② STEP 2: アルバム選択画面 (`src/AlbumList.html`)
 ```
 +------------------------------------------+
 | [< アーティスト一覧に戻る]               |  <- 戻るナビゲーションバー (常時固定)
@@ -311,7 +923,7 @@ PC表示（`md:` 以上）では画面を3ペインに分割し、ブラウジ�
 +------------------------------------------+
 ```
 
-#### ③ STEP 3: トラック詳細画面（モバイル縦積みレイアウト）
+#### ③ STEP 3: トラック詳細画面 (`src/TrackDetail.html`)
 ```
 +------------------------------------------+
 | [< アルバム一覧に戻る]                   |  <- 戻るナビゲーション
@@ -339,81 +951,29 @@ PC表示（`md:` 以上）では画面を3ペインに分割し、ブラウジ�
 +------------------------------------------+
 ```
 
-### 2.5 iTunes検索・一括登録モーダル設計
+---
 
-スマートフォン表示時はフルスクリーンモーダル（画面全域表示）とし、キーボード表示領域を確保する。
+### 4.5 モーダル表示仕様
 
-```
-+-------------------------------------------------------------+
-| [モーダル] iTunesからアルバムを一括登録                 [✕] |
-+-------------------------------------------------------------+
-| 検索キーワード:                                             |
-| [ アルバム名またはアーティスト名を入力...             ] [検索] |
-+-------------------------------------------------------------+
-| 検索結果 (候補アルバムを選択してください):                  |
-| +---------------------------------------------------------+ |
-| | [Jacket 60x60]  orbital period                          | |
-| |                 BUMP OF CHICKEN / 2007-12-19 / 28曲     | |
-| +---------------------------------------------------------+ |
-+-------------------------------------------------------------+
-| 選択中アルバムのプレビュー:                                 |
-| [Jacket 500x500] orbital period / BUMP OF CHICKEN           |
-| リリース日: 2007-12-19                                      |
-|                                                             |
-| トラック一覧プレビュー (自動取得):                          |
-|   Disc 1 (CD番号: 1)                                        |
-|     1. voyager (BUMP OF CHICKEN)                            |
-|     2. 星の鳥 (BUMP OF CHICKEN)                             |
-|   Disc 2 (CD番号: 2)                                        |
-|     1. ...                                                  |
-+-------------------------------------------------------------+
-| [ キャンセル ]                     [ このアルバムを一括登録 ] |
-+-------------------------------------------------------------+
-```
+#### ① iTunes検索・一括登録モーダル (`src/ItunesModal.html`)
+- キーワード入力欄（`enterkeyhint="search"`）、検索ボタン。
+- 候補アルバムリスト、トラック詳細プレビュー（CD番号 / DiscNumber 確認）。
+- 500×500 解像度ジャケットプレビュー。
+- スマホでは全画面覆い（ボトムシート）でキーボード表示領域を確保。
 
-### 2.6 手動楽曲登録フォーム設計
+#### ② 手動楽曲登録フォーム (`src/ManualModal.html`)
+- 全8項目（CD番号、アルバムアーティスト、アルバム名、アーティスト名、トラック番号、トラック名、リリース日、アルバムアートURL）の入力。
+- CD番号・トラック番号に `inputmode="numeric"`（テンキー起動）。
+- 「★ 登録して続けて入力」ボタン: アルバム共通情報を保持し、トラック番号を +1 してトラック名にフォーカス。
 
-自主制作盤・同人音源の連続入力に対応し、スマートフォンではテンキーが自動起動する `inputmode="numeric"` を設定。
-
-```
-+-------------------------------------------------------------+
-| [モーダル] 手動楽曲登録 (自主制作・未配信音源)          [✕] |
-+-------------------------------------------------------------+
-| CD番号 (ディスク番号) *         トラック番号 *             |
-| [ 1            ] (テンキー)     [ 1            ] (テンキー) |
-|                                                             |
-| アルバムアーティスト名 *                                    |
-| [ 例: 上海アリス幻樂団                                    ] |
-|                                                             |
-| アルバム名 *                                                |
-| [ 例: 蓬莱人形 ~ Dolls in Pseudo Paradise                 ] |
-|                                                             |
-| アーティスト名 (トラック歌唱・演奏者) *                     |
-| [ 例: ZUN (アルバムアーティストから自動補完)              ] |
-|                                                             |
-| トラック名 (楽曲タイトル) *                                 |
-| [ 例: 蓬莱伝説                                            ] |
-|                                                             |
-| リリース日 (任意)               アルバムアートURL (任意)    |
-| [ YYYY-MM-DD ] (日付ピッカー)   [ https://... (空欄可)    ] |
-+-------------------------------------------------------------+
-| [ 閉じる ]         [ 登録して閉じる ]   [ ★ 登録して続けて入力 ]|
-+-------------------------------------------------------------+
-  ※「登録して続けて入力」を押すと、CD番号・アルバム名・アーティスト名
-    ・アートURLを保持したままトラック番号が自動で +1 され、
-    トラック名にフォーカスが当たります。
-```
-
-### 2.7 アルバムアート拡大モーダル設計
-- サムネイル画像をタップ/クリックすると、背景が黒半透明（`bg-black/80`）のオーバーレイを表示。
-- 中央に 500×500 ピクセルのオリジナル画像をレスポンシブに最大表示（`max-w-[90vw] max-h-[85vh]`）。
-- 画面上のどこをタップしても即座に閉じる。
+#### ③ アルバムアート拡大モーダル (`src/ImageModal.html`)
+- 500×500 オリジナル画像を黒半透明背景（`bg-black/80`）でポップアップ表示。
 
 ---
 
-## 3. データモデル・ストレージ設計
+## 5. データモデル・ストレージ設計
 
-### 3.1 概念データモデル・ER図
+### 5.1 概念データモデル・ER図
 
 ```mermaid
 erDiagram
@@ -446,7 +1006,9 @@ erDiagram
     }
 ```
 
-### 3.2 スプレッドシートテーブル定義（案A: 1トラック1行フラット方式）
+---
+
+### 5.2 スプレッドシートテーブル定義（案A: 1トラック1行フラット方式）
 
 ユーザー承認に基づく正式採用方式。スプレッドシート上のシート名: `MusicTracks`。
 全8項目を1行1トラックとしてフラットに格納。
@@ -463,16 +1025,14 @@ erDiagram
 | **H** | **アルバムアートURL** | `artworkUrl` | 文字列 (URL) | No | Google DriveのWeb表示URLまたはHTTP(S)形式URL | `https://drive.google.com/uc?id=...` |
 
 > [!NOTE]
-> **複合一意キーの考え方**:
-> 業務上の論理ユニークキーは `アルバム名` + `CD番号` + `トラック番号` の組み合わせとする。一括登録時や手動登録時に既存行との重複検知を行う。
+> **論理ユニークキー**:
+> `アルバム名` + `CD番号` + `トラック番号` の組み合わせとする。
 
-### 3.3 クライアント内部データ構造（メモリキャッシュ）
+---
 
-スプレッドシートから読み込んだフラット行配列を、クライアント側で高速参照できるように以下の階層ツリー構造へパース・インデックス化する。
+### 5.3 クライアント内部データ構造（メモリキャッシュツリー）
 
 ```typescript
-// クライアント側 TypeScript型定義イメージ
-
 interface RawTrackRow {
   cdNumber: number | string;
   albumArtist: string;
@@ -511,240 +1071,164 @@ interface ArtistData {
   albums: Record<string, AlbumData>; // アルバム名キー
 }
 
-// アプリケーション全体キャッシュルート
-type MusicCatalog = Record<string, ArtistData>; // アーティスト名キー
+type CatalogTree = Record<string, ArtistData>; // アーティスト名キー
 ```
-
-### 3.4 Google Drive ストレージ設計
-
-#### ① 格納フォルダ
-- スクリプトプロパティ `DRIVE_FOLDER_ID` で指定されたフォルダ配下に全アルバムアート画像をフラットに保存する。
-
-#### ② ファイル命名規約
-- ファイル名の衝突を防止し、Drive上で管理しやすくするため以下の規約とする：
-  ```
-  artwork_{サニタイズ済みアルバム名}_{タイムスタンプ}.jpg
-  ```
-  - 例: `artwork_First_Love_1718000000000.jpg`
-  - サニタイズ処理: ファイル名禁止文字（`\ / : * ? " < > |`）および空白をアンダースコア `_` に置換。
-
-#### ③ 権限設定およびWeb表示用URL
-- 保存時に当該画像ファイルの共有設定を自動で設定する：
-  ```javascript
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  ```
-- **Web表示用URLの生成**:
-  - Google Driveの公式Web配信URL形式を採用：
-    `https://drive.google.com/uc?export=view&id=${file.getId()}`
-  - サムネイル用（別形式）:
-    `https://lh3.googleusercontent.com/d/${file.getId()}`
-  - このURLをスプレッドシート H列（`artworkUrl`）に記録する。
 
 ---
 
-## 4. 外部システム・API連携設計
+### 5.4 Google Drive ストレージ仕様
 
-### 4.1 iTunes Search API 連携仕様
-
-- **エンドポイント**: `https://itunes.apple.com/search`
-- **通信方式**: `UrlFetchApp.fetch(url, { muteHttpExceptions: true })`
-- **リクエストパラメータ**:
-  - `term`: ユーザー入力キーワード（encodeURIComponent 必須）
-  - `country`: `jp`（日本国内ストア優先）
-  - `media`: `music`
-  - `entity`: `album`
-  - `limit`: `25`
-- **レスポンスマッピング**:
-  ```json
-  {
-    "resultCount": 25,
-    "results": [
-      {
-        "wrapperType": "collection",
-        "collectionId": 1440783617,
-        "artistName": "宇多田ヒカル",
-        "collectionName": "First Love",
-        "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/.../100x100bb.jpg",
-        "releaseDate": "1999-03-10T08:00:00Z",
-        "trackCount": 12
-      }
-    ]
-  }
-  ```
-
-### 4.2 iTunes Lookup API 連携仕様
-
-- **エンドポイント**: `https://itunes.apple.com/lookup`
-- **リクエストパラメータ**:
-  - `id`: アルバムの `collectionId`
-  - `entity`: `song`
-  - `country`: `jp`
-- **レスポンス構造と抽出ロジック**:
-  - `results[0]`: `wrapperType == "collection"`（アルバム共通情報）
-  - `results[1..N]`: `wrapperType == "track"`（トラック情報）
-- **マッピングルール**:
-  | iTunes API レスポンス項目 | スプレッドシート項目 | 変換・補正仕様 |
-  | :--- | :--- | :--- |
-  | `discNumber` | **CD番号** | **確定仕様**: ディスク番号（1, 2...）をそのまま設定。存在しない場合は `1`。 |
-  | `collectionArtistName` または `artistName` | **アルバムアーティスト名** | アルバム全体のアーティスト |
-  | `collectionName` | **アルバム名** | アルバム名 |
-  | `artistName` | **アーティスト名** | 各トラックの歌唱者（客演時は固有アーティスト名） |
-  | `trackNumber` | **トラック番号** | 当該ディスク内の曲順番号 |
-  | `trackName` | **トラック名** | 楽曲タイトル |
-  | `releaseDate` | **リリース日** | ISO日付 `YYYY-MM-DDTHH:mm:ssZ` の先頭10文字 `YYYY-MM-DD` |
-  | `artworkUrl100` | **アルバムアートURL** | 500×500置換後、Drive保存したWeb表示URL |
-
-### 4.3 アルバムアート高精細化（500×500）仕様
-
-iTunes APIが提供するサムネイルURL（`100x100bb`）から、高精細な 500×500 画像URLを正規表現置換で生成する。
-
-```javascript
-/**
- * 100x100bb URL を 500x500bb URL へ変換
- * @param {string} url100 
- * @returns {string} url500
- */
-function convertTo500x500ArtworkUrl(url100) {
-  if (!url100) return '';
-  return url100.replace(/100x100bb\.(jpg|png|webp)/i, '500x500bb.$1');
-}
-```
-
-### 4.4 Google Drive 画像保存・URL発行仕様
-
-```javascript
-/**
- * 高精細アルバムアート画像をDriveに保存し、公開Web表示URLを発行
- * @param {string} imageUrl500 
- * @param {string} albumName 
- * @returns {string} driveWebUrl
- */
-function saveArtworkToDrive(imageUrl500, albumName) {
-  const folderId = PropertiesService.getScriptProperties().getProperty('DRIVE_FOLDER_ID');
-  if (!folderId) throw new Error('DRIVE_FOLDER_ID がスクリプトプロパティに設定されていません。');
-
-  const folder = DriveApp.getFolderById(folderId);
-  const response = UrlFetchApp.fetch(imageUrl500);
-  const blob = response.getBlob();
-
-  const sanitizedName = albumName.replace(/[\/\\:\*\?"<>\| ]/g, '_').substring(0, 50);
-  const fileName = `artwork_${sanitizedName}_${Date.now()}.jpg`;
-  blob.setName(fileName);
-
-  const file = folder.createFile(blob);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-  return `https://drive.google.com/uc?export=view&id=${file.getId()}`;
-}
-```
-
-### 4.5 フロントエンド・バックエンド間 RPC 通信インターフェース仕様
-
-GASの標準機能 `google.script.run` を通じて呼び出すサーバー側APIの一覧を定義する。
-全ての結果は共通のレスポンスオブジェクト `{ success: boolean, data?: any, error?: string }` 形式で返却する。
-
-| API関数名 | 引数 | 戻り値型 | 責務・概要 |
-| :--- | :--- | :--- | :--- |
-| `apiGetAllData()` | なし | `{ success: true, tracks: RawTrackRow[], meta: Object }` | スプレッドシートから全行取得し返却する。 |
-| `apiSearchItunes(keyword)` | `keyword: string` | `{ success: true, albums: ItunesAlbumSummary[] }` | iTunes Search API へ問い合わせ、アルバム一覧を返却する。 |
-| `apiLookupItunesAlbum(collectionId)` | `collectionId: number` | `{ success: true, albumDetail: ItunesAlbumDetail }` | iTunes Lookup API より全トラック情報（discNumber含む）と 500x500 アートURLを取得して返却する。 |
-| `apiSaveAlbumBatch(payload)` | `payload: BatchSavePayload` | `{ success: true, count: number }` | 画像をDrive保存し、全トラック行をスプレッドシートへ一括書き込みする。 |
-| `apiSaveTrackSingle(track)` | `track: RawTrackRow` | `{ success: true, row: RawTrackRow }` | 手動登録フォームから1行をスプレッドシートへ追記する。 |
+1. **格納フォルダ**: スクリプトプロパティ `DRIVE_FOLDER_ID` で指定されたフォルダ。
+2. **ファイル名規約**: `artwork_{サニタイズ済みアルバム名}_{タイムスタンプ}.jpg`
+3. **公開権限**: 保存時に `file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW)` を実行。
+4. **Web表示用URL**: `https://drive.google.com/uc?export=view&id={fileId}` をスプレッドシートH列に格納。
 
 ---
 
-## 5. 主要処理フロー・シーケンス設計
+## 6. 主要処理フロー・シーケンス設計 (クラス間協調)
 
-### 5.1 アプリ起動・全データ初期ロード シーケンス
+### 6.1 アプリ起動・全データ初期ロード シーケンス
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User as ユーザー
-    participant Browser as ブラウザ (SPA)
-    participant GAS as GAS (Code.gs)
+    participant Browser as ブラウザ (index.html)
+    participant App as ScriptsApp (App)
+    participant ApiClient as ScriptsApiClient (ApiClient)
+    participant Code as Code.js (doGet / apiGetAllData)
+    participant MusicService as MusicService
+    participant SheetService as SheetService
     participant Sheet as Google スプレッドシート
 
     User->>Browser: WebアプリURLアクセス
-    Browser->>GAS: doGet() 実行
-    GAS-->>Browser: index.html 配信 (ローディングスケルトン表示)
-    Browser->>GAS: google.script.run.apiGetAllData()
-    GAS->>Sheet: getDataRange().getValues()
-    Sheet-->>GAS: 全行データ配列 (A〜H列)
-    GAS-->>Browser: { success: true, tracks: [...] }
-    Browser->>Browser: クライアント側でツリー構造 (musicTree) へ変換
-    alt PC/タブレット横 (md以上)
-        Browser->>Browser: 3ペイン同時描画 (先頭アーティストを自動選択)
-    else スマートフォン (md未満)
-        Browser->>Browser: STEP 1: アーティスト一覧画面を描画
-    end
-    Browser-->>User: 画面表示完了
+    Browser->>Code: doGet(e)
+    Code-->>Browser: index.html 配信 (各コンポーネント include 済み)
+    Browser->>App: DOMContentLoaded -> App.init()
+    App->>ApiClient: ApiClient.getAllData()
+    ApiClient->>Code: google.script.run.apiGetAllData()
+    Code->>MusicService: getAllMusicData()
+    MusicService->>SheetService: fetchAllTracks()
+    SheetService->>Sheet: getDataRange().getValues()
+    Sheet-->>SheetService: 全行データ (A〜H列)
+    SheetService-->>MusicService: Array~RawTrackRow~
+    MusicService-->>Code: { tracks: [...], count: 1420 }
+    Code-->>ApiClient: { success: true, data: { tracks: [...] } }
+    ApiClient-->>App: tracks 配列
+    App->>App: Store.setRawTracks(tracks) (ツリー構築)
+    App->>App: App.render() (PC: 3ペイン / スマホ: STEP 1)
+    App-->>User: 画面描画完了
 ```
 
-### 5.2 3段階ドリルダウン表示制御フロー
+---
+
+### 6.2 3段階ドリルダウン表示制御フロー
 
 #### PC表示時
-- STEP 1 でアーティスト行をクリック → 選択状態（アクティブ色反転）にし、中央の STEP 2 にアルバムカード一覧を描画。先頭のアルバムを自動選択して STEP 3 にトラック詳細を展開。
+- STEP 1 でアーティスト行をクリック → `Store.setSelectedArtist(artist)`。中央の STEP 2 にアルバムカード一覧を描画。先頭のアルバムを自動選択して `Store.setSelectedAlbum(album)`、右側の STEP 3 にトラック詳細を展開。
 
 #### スマートフォン表示時（ステップ切り替え）
 - **STEP 1 → STEP 2**:
-  - ユーザーがアーティスト項目（タップターゲット 44px 以上）をタップ。
-  - `AppState.currentStep = 2` に更新。
-  - 画面をアニメーションまたは即時切り替えで STEP 2 を全画面表示。
-  - 最上部に「`< アーティスト一覧に戻る`」ボタンを表示。
+  - アーティスト行（タップターゲット 44px 以上）をタップ。
+  - `Store.setSelectedArtist(artist)` & `Store.setCurrentStep(2)`。
+  - STEP 1 を非表示にし、STEP 2（アルバム一覧画面）を表示。
+  - 画面上部に「`< アーティスト一覧に戻る`」ボタンを表示。
 - **STEP 2 → STEP 3**:
-  - ユーザーがアルバムカードをタップ。
-  - `AppState.currentStep = 3` に更新。
-  - STEP 3 を全画面表示。最上部に「`< アルバム一覧に戻る`」および「`アーティスト名 > アルバム名`」パンくずを表示。
-  - トラック一覧をディスク（CD番号）単位でグループ化し、スマホ向け縦積みリストとして描画。
+  - アルバムカードをタップ。
+  - `Store.setSelectedAlbum(album)` & `Store.setCurrentStep(3)`。
+  - STEP 2 を非表示にし、STEP 3（トラック詳細画面）を表示。
+  - 画面上部に「`< アルバム一覧に戻る`」および「`アーティスト名 > アルバム名`」パンくずを表示。
+  - ディスク（CD番号）単位でグループ化し、スマホ向け縦積みリストとして描画。
 
-### 5.3 iTunes検索 〜 プレビュー 〜 一括登録 シーケンス
+---
+
+### 6.3 iTunes検索 〜 プレビュー 〜 一括登録 シーケンス
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User as ユーザー
-    participant Modal as iTunes検索モーダル
-    participant GAS as GAS バックエンド
+    participant Modal as ItunesModal
+    participant App as ScriptsApp
+    participant ApiClient as ScriptsApiClient
+    participant Code as Code.js
+    participant MusicService as MusicService
+    participant ItunesService as ItunesService
+    participant DriveService as DriveService
+    participant SheetService as SheetService
     participant iTunes as iTunes API
     participant Drive as Google ドライブ
     participant Sheet as Google スプレッドシート
 
-    User->>Modal: キーワード入力 & 「検索」押下
-    Modal->>GAS: apiSearchItunes(keyword)
-    GAS->>iTunes: GET /search?entity=album&country=jp
-    iTunes-->>GAS: アルバム候補リスト JSON
-    GAS-->>Modal: 検索結果返却
-    Modal-->>User: アルバム一覧表示 (ジャケット・タイトル・年)
+    User->>Modal: 検索キーワード入力 & 「検索」押下
+    Modal->>ApiClient: ApiClient.searchItunes(keyword)
+    ApiClient->>Code: apiSearchItunes(keyword)
+    Code->>MusicService: searchItunesAlbums(keyword)
+    MusicService->>ItunesService: searchAlbums(keyword)
+    ItunesService->>iTunes: GET /search?entity=album&country=jp
+    iTunes-->>ItunesService: 候補アルバム一覧 JSON
+    ItunesService-->>MusicService: Array~AlbumSummary~
+    MusicService-->>Code: 検索結果
+    Code-->>ApiClient: { success: true, data: [...] }
+    ApiClient-->>Modal: 検索結果リスト描画
 
     User->>Modal: 候補アルバムを1件選択
-    Modal->>GAS: apiLookupItunesAlbum(collectionId)
-    GAS->>iTunes: GET /lookup?id=...&entity=song
-    iTunes-->>GAS: 全曲情報 & discNumber
-    GAS->>GAS: 500x500 アートURLへ正規表現変換
-    GAS-->>Modal: トラック一覧・CD番号・500x500画像URL返却
-    Modal-->>User: 登録プレビュー表示 (ディスク番号・全曲名確認)
+    Modal->>ApiClient: ApiClient.lookupItunes(collectionId)
+    ApiClient->>Code: apiLookupItunesAlbum(collectionId)
+    Code->>MusicService: lookupItunesAlbum(collectionId)
+    MusicService->>ItunesService: lookupAlbumSongs(collectionId)
+    ItunesService->>iTunes: GET /lookup?id=...&entity=song
+    iTunes-->>ItunesService: トラック一覧 JSON (discNumber含む)
+    ItunesService->>ItunesService: convertTo500x500ArtworkUrl()
+    ItunesService-->>MusicService: AlbumDetail (500x500URL, discNumber別トラック)
+    MusicService-->>Code: アルバム詳細情報
+    Code-->>ApiClient: { success: true, data: AlbumDetail }
+    ApiClient-->>Modal: プレビュー画面描画 (全曲・CD番号・500x500ジャケット)
 
     User->>Modal: 「このアルバムを一括登録」押下
-    Modal->>GAS: apiSaveAlbumBatch(payload)
-    GAS->>Drive: 500x500 画像ダウンロード & 保存
-    GAS->>Drive: 権限を「リンクを知っている全員が閲覧」に設定
-    Drive-->>GAS: Web表示用URL発行
-    GAS->>Sheet: getRange().setValues(全トラック行) 一括書き込み
-    Sheet-->>GAS: 完了
-    GAS-->>Modal: { success: true }
-    Modal->>Modal: モーダルを閉じる
-    Modal->>User: 登録成功トースト表示 & 当該アルバムを自動選択表示
+    Modal->>ApiClient: ApiClient.saveAlbumBatch(payload)
+    ApiClient->>Code: apiSaveAlbumBatch(payload)
+    Code->>MusicService: saveAlbumFromItunes(payload)
+    
+    rect rgb(240, 248, 255)
+        Note over MusicService,Drive: 画像保存 & URL発行
+        MusicService->>DriveService: downloadAndSaveArtwork(url500, albumName)
+        DriveService->>iTunes: 画像バイナリ取得
+        DriveService->>Drive: createFile(blob) & setSharing(PUBLIC)
+        Drive-->>DriveService: fileId
+        DriveService-->>MusicService: Web表示用URL
+    end
+
+    rect rgb(245, 255, 245)
+        Note over MusicService,Sheet: シートへバッチ書き込み
+        MusicService->>SheetService: insertTracksBatch(newRows)
+        SheetService->>Sheet: getRange().setValues(newRows) 一括書き込み
+        Sheet-->>SheetService: 完了
+        SheetService-->>MusicService: 挿入件数
+    end
+
+    MusicService-->>Code: { success: true, count: N }
+    Code-->>ApiClient: { success: true }
+    ApiClient-->>App: 一括登録成功
+    App->>Modal: モーダルを閉じる
+    App->>App: データ再取得 & 登録アルバムを選択状態にして表示
+    App-->>User: 登録成功トースト表示
 ```
 
-### 5.4 手動楽曲登録（連続登録アシスト）シーケンス
+---
+
+### 6.4 手動楽曲登録（連続登録アシスト）シーケンス
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User as ユーザー
-    participant Form as 手動登録フォーム
-    participant GAS as GAS バックエンド
+    participant Form as ManualModal
+    participant App as ScriptsApp
+    participant ApiClient as ScriptsApiClient
+    participant Code as Code.js
+    participant MusicService as MusicService
+    participant SheetService as SheetService
     participant Sheet as Google スプレッドシート
 
     User->>Form: 「+ 手動登録」押下
@@ -753,29 +1237,44 @@ sequenceDiagram
     
     alt パターンA: 「登録して続けて入力」を押下
         User->>Form: 「登録して続けて入力」押下
-        Form->>GAS: apiSaveTrackSingle(trackData)
-        GAS->>Sheet: appendRow(trackData)
-        Sheet-->>GAS: 完了
-        GAS-->>Form: { success: true }
+        Form->>ApiClient: ApiClient.saveTrackSingle(trackData)
+        ApiClient->>Code: apiSaveTrackSingle(trackData)
+        Code->>MusicService: saveSingleTrack(trackData)
+        MusicService->>SheetService: appendSingleTrack(trackData)
+        SheetService->>Sheet: appendRow(trackData)
+        Sheet-->>SheetService: 完了
+        SheetService-->>MusicService: 登録行データ
+        MusicService-->>Code: 完了
+        Code-->>ApiClient: { success: true }
+        ApiClient-->>Form: 登録成功
         Form->>Form: CD番号・アルバム名・アーティスト名・アートURLは保持
-        Form->>Form: トラック番号を +1 (例: 1 -> 2)
+        Form->>Form: トラック番号を自動で +1 (例: 1 -> 2)
         Form->>Form: トラック名入力欄をクリアしフォーカス移動
         Form-->>User: 「登録完了！次の曲を入力してください」トースト表示
     else パターンB: 「登録して閉じる」を押下
         User->>Form: 「登録して閉じる」押下
-        Form->>GAS: apiSaveTrackSingle(trackData)
-        GAS->>Sheet: appendRow(trackData)
-        Sheet-->>GAS: 完了
-        GAS-->>Form: { success: true }
-        Form->>Form: フォームを閉じる & 画面キャッシュを最新化
-        Form-->>User: 登録完了
+        Form->>ApiClient: ApiClient.saveTrackSingle(trackData)
+        ApiClient->>Code: apiSaveTrackSingle(trackData)
+        Code->>MusicService: saveSingleTrack(trackData)
+        MusicService->>SheetService: appendSingleTrack(trackData)
+        SheetService->>Sheet: appendRow(trackData)
+        Sheet-->>SheetService: 完了
+        SheetService-->>MusicService: 登録行データ
+        MusicService-->>Code: 完了
+        Code-->>ApiClient: { success: true }
+        ApiClient-->>App: 登録完了
+        App->>Form: フォームを閉じる
+        App->>App: 画面キャッシュ最新化 & 当該アルバムへ遷移
+        App-->>User: 登録完了トースト表示
     end
 ```
 
-### 5.5 全体クイック検索・インクリメンタルフィルタリング処理フロー
+---
 
-1. ユーザーがヘッダーの「全体クイック検索」に文字を入力（デバウンス 200ms）。
-2. クライアント側メモリ内の `allTracks` 配列に対して以下の項目を大文字小文字無視でインクリメンタル検索：
+### 6.5 全体クイック検索・インクリメンタルフィルタリング処理フロー
+
+1. ユーザーがヘッダーの「全体クイック検索」に文字を入力（`Utils.debounce` 200ms）。
+2. クライアント側メモリ内の `Store.allTracks` 配列に対して以下の項目を大文字小文字無視でインクリメンタル検索：
    - アルバムアーティスト名
    - アルバム名
    - トラック名
@@ -786,13 +1285,13 @@ sequenceDiagram
 
 ---
 
-## 6. 非機能・セキュリティ・例外設計
+## 7. 非機能・セキュリティ・例外設計
 
-### 6.1 セキュリティ設計
+### 7.1 セキュリティ設計
 
 #### ① XSS（クロスサイトスクリプティング）対策
-- スプレッドシートおよび iTunes API から取得した文字列を HTML に動的挿入する際、`innerHTML` による生文字埋め込みを禁止する。
-- 以下のエスケープ関数を徹底するか、`textContent` プロパティを使用して DOM を生成する：
+- スプレッドシートおよび iTunes API から取得した文字列を HTML に動的挿入する際、`innerHTML` による生文字埋め込みを厳禁とする。
+- `Utils.escapeHtml(str)` によるエスケープ処理を徹底するか、DOM API の `textContent` プロパティを使用して要素を構築する：
   ```javascript
   function escapeHtml(str) {
     if (str === null || str === undefined) return '';
@@ -806,17 +1305,19 @@ sequenceDiagram
   ```
 
 #### ② 権限境界とスクリプトプロパティの秘匿
-- スプレッドシートID、Google ドライブフォルダIDはクライアント側 JavaScript に渡さず、GAS サーバーサイド環境変数（`PropertiesService.getScriptProperties()`）内で安全に参照・完結する。
+- スプレッドシートID、Google ドライブフォルダIDはクライアント側 JavaScript に渡さず、GAS サーバーサイド環境変数（`Config` クラス内）で安全に参照・完結する。
 - Web Apps のデプロイ設定は「実行ユーザー: 自分（アクセス権限を持つアカウント）」とし、一般閲覧者に対してスプレッドシートやドライブの直接編集権限を付与することなく安全に読み書きを提供する。
 
-### 6.2 パフォーマンス設計
+---
+
+### 7.2 パフォーマンス設計
 
 #### ① クライアント側メモリキャッシュ
 - 起動時にスプレッドシートの全データを1回の `apiGetAllData()` で一括ロード。
 - アーティスト絞り込みやアルバム切り替え時の追加サーバー間通信（RPC）をゼロにし、即時応答を実現。
 
 #### ② スプレッドシートへのバッチ一括書き込み
-- 10〜20曲のトラック登録時、1行ずつの `appendRow` をループ実行すると GAS のオーバーヘッドが大きくなるため、iTunes一括登録時は `sheet.getRange(lastRow + 1, 1, rows.length, 8).setValues(rows)` による一括挿入（バッチ書き込み）を適用する。
+- 10〜20曲のトラック登録時、1行ずつの `appendRow` をループ実行すると GAS のオーバーヘッドが大きくなるため、iTunes一括登録時は `SheetService.insertTracksBatch` による一括挿入（バッチ書き込み）を適用する。
 
 #### ③ アルバムアート画像の遅延ロード
 - カード一覧やリスト表示部では `loading="lazy"` 属性を付与し、画面スクロールに合わせて画像を遅延読み込みすることで初期表示速度を向上。
@@ -824,7 +1325,9 @@ sequenceDiagram
 #### ④ 二重送信・連打抑止
 - 登録ボタン、検索ボタン押下時は直ちにボタンを `disabled` 状態にし、ローディングスピナー（SVGアニメーション）を表示して重複リクエストを防止する。
 
-### 6.3 モバイル・タッチ操作性設計
+---
+
+### 7.3 モバイル・タッチ操作性設計
 
 1. **タップターゲット基準の遵守**:
    - ボタン、戻るリンク、アーティスト一覧項目、アルバムカードのタップ可能エリアは、Apple iOS Human Interface Guidelines に準拠し、**最小 44px × 44px** を厳守。
@@ -834,10 +1337,12 @@ sequenceDiagram
 3. **横スクロール完全抑止**:
    - スマホ画面幅（320px〜480px）において、横スクロール（水平スクロールバー）を発生させないため、すべてのテキスト要素に `break-words` を指定し、トラック表示は縦積みレイアウトを採用。
 
-### 6.4 エラーハンドリング・例外設計
+---
+
+### 7.4 エラーハンドリング・例外設計
 
 #### ① 共通エラーレスポンス規約
-GASバックエンドからの戻り値は統一フォーマットとし、例外発生時は `catch` 節でハンドリングしてエラーメッセージをクライアントへ返却する。
+各サービスクラス（`SheetService`, `DriveService`, `ItunesService`, `MusicService`）で発生したエラーは、エントリーポイント（`Code.js`）で統一的にハンドリングされ、以下の共通フォーマットでクライアントへ返却される。
 
 ```javascript
 // 共通レスポンス形式
@@ -852,13 +1357,15 @@ GASバックエンドからの戻り値は統一フォーマットとし、例�
 
 | エラー事象 | 検出契機 | エラーコード | クライアント表示・対応 |
 | :--- | :--- | :--- | :--- |
-| スクリプトプロパティ未設定 | API呼出時 | `CONFIG_NOT_FOUND` | 「初期設定が必要です。スプレッドシートIDまたはフォルダIDが設定されていません。」を表示し設定手順を案内。 |
-| スプレッドシート/シート未存在 | データ読込時 | `SHEET_NOT_FOUND` | 自動的に新規シート（`MusicTracks`）を作成し初期ヘッダーを挿入してリカバリ。 |
-| ドライブフォルダID不正/権限なし | 画像保存時 | `DRIVE_ACCESS_DENIED` | 「Google ドライブフォルダへのアクセス権がありません。フォルダIDを確認してください。」を表示。 |
-| iTunes API タイムアウト/障害 | 検索・Lookup時 | `ITUNES_API_ERROR` | 「iTunes APIとの通信に失敗しました。時間をおいて再試行してください。」を表示。 |
+| スクリプトプロパティ未設定 | `Config.validate()` | `CONFIG_NOT_FOUND` | 「初期設定が必要です。スプレッドシートIDまたはフォルダIDが設定されていません。」を表示し設定手順を案内。 |
+| スプレッドシート/シート未存在 | `SheetService.getOrCreateSheet()` | `SHEET_NOT_FOUND` | 自動的に新規シート（`MusicTracks`）を作成し初期ヘッダーを挿入してリカバリ。 |
+| ドライブフォルダID不正/権限なし | `DriveService.downloadAndSaveArtwork()` | `DRIVE_ACCESS_DENIED` | 「Google ドライブフォルダへのアクセス権がありません。フォルダIDを確認してください。」を表示。 |
+| iTunes API タイムアウト/障害 | `ItunesService.searchAlbums()` | `ITUNES_API_ERROR` | 「iTunes APIとの通信に失敗しました。時間をおいて再試行してください。」を表示。 |
 | 入力バリデーションエラー | 手動登録時 | `VALIDATION_FAILED` | 未入力の必須項目（アルバム名・曲名等）を赤枠ハイライトし、ツールチップで警告。 |
 
-### 6.5 スクリプトプロパティ構成と初期セットアップ設計
+---
+
+### 7.5 スクリプトプロパティ構成と初期セットアップ設計
 
 本システムを稼働させるために必要なスクリプトプロパティの一覧およびセットアップ手順を定義する。
 
@@ -869,7 +1376,7 @@ GASバックエンドからの戻り値は統一フォーマットとし、例�
 | `SHEET_NAME` | 任意 | `MusicTracks` | データシート名。未設定時はデフォルト値 `MusicTracks` が適用される。 |
 
 #### シート初期化（自動ヘッダー挿入）ロジック
-初回起動時または対象シートが存在しない場合、バックエンドで以下のヘッダーを1行目に自動作成し固定表示（フリーズ）する：
+初回起動時または対象シートが存在しない場合、`SheetService.initHeaderIfEmpty()` により以下のヘッダーを1行目に自動作成し固定表示（フリーズ）する：
 - A1: `CD番号`
 - B1: `アルバムアーティスト名`
 - C1: `アルバム名`
@@ -882,8 +1389,24 @@ GASバックエンドからの戻り値は統一フォーマットとし、例�
 
 ---
 
-## 7. まとめと実装フェーズへの引き継ぎ
+## 8. まとめと実装フェーズへの引き継ぎ
 
-本基本設計書は、要件定義書（`docs/REQUIREMENTS.md` v1.2.0）に定められた全機能要件・非機能要件、およびユーザー確定事項（8項目定義、CD番号＝ディスク番号、案Aフラット方式、案AドライブURL、手動登録機能、完全レスポンシブ・スマホ対応）を漏れなく網羅した設計仕様である。
+本改訂版の基本設計書（v1.1.0）は、ユーザー様のご指示「**全ファイルを集約せずオブジェクト指向のように役割毎に分割する**」に基づき、以下の設計を完全に確立した：
 
-次期フェーズ（Step 3: 詳細設計 / 実装設計）において、フロントエンドコンポーネントの実装、GASスクリプトモジュールの開発、およびテストケースの策定へ直ちに移行可能である。
+1. **GASバックエンドのオブジェクト指向設計**:
+   - `Config.js`（設定カプセル化）
+   - `SheetService.js`（スプレッドシート入出力・初期化）
+   - `DriveService.js`（Drive画像保存・権限・URL生成）
+   - `ItunesService.js`（iTunes API連携・500x500高精細化・CD番号/discNumber抽出）
+   - `MusicService.js`（業務ロジックの統括オーケストレーション）
+   - `Code.js`（Web Apps Facade & RPCディスパッチャ）
+2. **フロントエンドのコンポーネント化（GAS include方式）**:
+   - 画面骨格（`index.html`）、スタイル（`Styles.html`）、ヘッダー（`Navbar.html`）
+   - 3段階画面（`ArtistList.html`, `AlbumList.html`, `TrackDetail.html`）
+   - モーダル群（`ItunesModal.html`, `ManualModal.html`, `ImageModal.html`）
+   - クライアントロジック層（`ScriptsState.html`, `ScriptsApiClient.html`, `ScriptsApp.html`, `ScriptsUtils.html`）
+3. **視覚的ダイアグラムの完備**:
+   - バックエンドクラス図、フロントエンドコンポーネント・クラス図、クラス間協調シーケンス図
+
+これにより、各モジュールが単一責任原則（SRP）に従い疎結合に保たれ、テスト容易性・保守性・拡張性が飛躍的に向上した堅牢な設計となっている。
+次期フェーズ（Step 3: 実装設計・詳細設計およびソースコード作成）へ直ちに移行可能である。
