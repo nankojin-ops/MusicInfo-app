@@ -8,6 +8,8 @@
     "test": "tests"
   },
   "scripts": {
+    "build": "node build.js",
+    "prepush": "npm run build && npm test",
     "test": "node tests/run_tests.js && node tests/red_team_attack_test.js",
     "test:unit": "node tests/run_tests.js",
     "test:redteam": "node tests/red_team_attack_test.js",

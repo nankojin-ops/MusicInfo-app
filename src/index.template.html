@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MusicInfo Manager - 音楽CD・アルバムコレクション管理</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- スタイル定義インクルード -->
+  <?!= include('Styles'); ?>
+</head>
+<body class="h-full flex flex-col overflow-hidden font-sans antialiased select-none bg-slate-950 text-slate-100">
+
+  <!-- グローバルローディングオーバーレイ -->
+  <div id="global-loading" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 transition-opacity duration-200">
+    <div class="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+    <p id="global-loading-text" class="text-slate-300 font-medium text-sm">データを読み込み中...</p>
+  </div>
+
+  <!-- ナビゲーションバー (ヘッダー) インクルード -->
+  <?!= include('Navbar'); ?>
+
+  <!-- メイン3ペインコンテナ -->
+  <main class="flex-1 overflow-hidden relative grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+    <!-- STEP 1: アーティスト一覧 (PC: 3列, スマホ: Step 1) -->
+    <?!= include('ArtistList'); ?>
+
+    <!-- STEP 2: アルバムカード一覧 (PC: 4列, スマホ: Step 2) -->
+    <?!= include('AlbumList'); ?>
+
+    <!-- STEP 3: トラック詳細・ディスク別テーブル (PC: 5列, スマホ: Step 3) -->
+    <?!= include('TrackDetail'); ?>
+  </main>
+
+  <!-- 各種モーダルインクルード -->
+  <?!= include('ItunesModal'); ?>
+  <?!= include('ManualModal'); ?>
+  <?!= include('ImageModal'); ?>
+
+  <!-- トースト通知コンテナ -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- フロントエンド スクリプト群インクルード（順序厳守） -->
+  <?!= include('ScriptsUtils'); ?>
+  <?!= include('ScriptsApiClient'); ?>
+  <?!= include('ScriptsState'); ?>
+  <?!= include('ScriptsApp'); ?>
+
+  <script>
+    // アプリケーション起動
+    function startApp() {
+      const AppClass = window.App || (typeof App !== 'undefined' ? App : null);
+      if (!AppClass) {
+        console.error('App クラスがロードされていません');
+        return;
+      }
+      if (!window.app) {
+        window.app = new AppClass();
+        window.app.init();
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startApp);
+    } else {
+      startApp();
+    }
+  </script>
+</body>
+</html>

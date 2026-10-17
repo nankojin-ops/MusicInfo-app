@@ -12,3 +12,5 @@ package-lock.json*
 README.md
 AGENT_WORKFLOW.md
 .clasp.json.sample
+build.js
+src/index.template.html

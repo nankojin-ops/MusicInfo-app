@@ -4,25 +4,22 @@
  * @returns {GoogleAppsScript.HTML.HtmlOutput}
  */
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
+  return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('MusicInfo Manager - 音楽CD・アルバムコレクション管理')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /**
- * HTMLService テンプレート内インクルードヘルパー
- * createTemplateFromFile().getRawContent() により、スクリプト内のHTMLタグや演算子(<, &&)が
- * サニタイザーによって破損・エンコードされるのを防ぎ、生のコンテンツを安全に挿入します。
+ * HTMLService テンプレート内インクルードヘルパー（後方互換用）
  * @param {string} filename 
  * @returns {string} ファイルの内容HTML文字列
  */
 function include(filename) {
   try {
-    return HtmlService.createTemplateFromFile(filename).getRawContent();
-  } catch (e) {
     return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  } catch (e) {
+    return HtmlService.createTemplateFromFile(filename).getRawContent();
   }
 }
 
