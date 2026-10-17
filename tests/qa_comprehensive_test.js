@@ -873,6 +873,118 @@ test('App.openEditAlbumModal & handleSaveAlbumEdit: MB部分日付 (YYYY / YYYY-
   assert.strictEqual(savedEditPayload.album.releaseDate, '');
 });
 
+// -------------------------------------------------------------
+// セクション 8: GAS V8 ランタイム 単一グローバルスコープ共有・識別子衝突防止検証
+// -------------------------------------------------------------
+console.log('\n>>> [8] GAS V8 ランタイム 単一グローバルスコープ共有・識別子衝突防止検証');
+
+test('GAS V8 Global Scope: src/*.js 全7ファイルを同一VMコンテキスト（require未定義の純粋GAS V8環境）で任意の順序で評価・RPC実行しても SyntaxError / ReferenceError が一切発生しないこと', () => {
+  const srcDir = path.join(__dirname, '../src');
+  const allJsFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.js')).sort();
+  const orders = [
+    allJsFiles,
+    [...allJsFiles].reverse(),
+    ['Code.js', 'ItunesService.js', 'MusicBrainzService.js', 'MusicService.js', 'Config.js', 'SheetService.js', 'DriveService.js'],
+    ['MusicService.js', 'MusicBrainzService.js', 'ItunesService.js', 'SheetService.js', 'DriveService.js', 'Config.js', 'Code.js']
+  ];
+
+  for (const fileOrder of orders) {
+    const ctx = vm.createContext({
+      console,
+      PropertiesService: {
+        getScriptProperties: () => ({
+          getProperties: () => ({ SPREADSHEET_ID: 'ss-1', DRIVE_FOLDER_ID: 'dr-1' })
+        })
+      },
+      CacheService: {
+        getScriptCache: () => ({
+          get: () => null,
+          put: () => {}
+        })
+      },
+      Utilities: {
+        sleep: () => {}
+      },
+      UrlFetchApp: {
+        fetchAll: () => [
+          {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+              results: [{
+                wrapperType: 'collection',
+                collectionId: 101,
+                collectionName: 'GAS V8 Album',
+                artistName: 'GAS V8 Artist',
+                releaseDate: '2025-01-01T00:00:00Z',
+                trackCount: 5
+              }]
+            })
+          },
+          {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+              releases: [{
+                id: SAMPLE_MBID,
+                score: 95,
+                title: 'GAS V8 MB Album',
+                date: '2025-02',
+                'track-count': 6,
+                'artist-credit': [{ name: 'GAS V8 Artist' }]
+              }]
+            })
+          }
+        ],
+        fetch: () => ({
+          getResponseCode: () => 200,
+          getContentText: () => JSON.stringify({
+            id: SAMPLE_MBID,
+            title: 'GAS V8 MB Album',
+            date: '2025-02',
+            'artist-credit': [{ name: 'GAS V8 Artist' }],
+            media: [{
+              position: 1,
+              format: 'CD',
+              tracks: [{ position: 1, number: '1', title: 'Track 1' }]
+            }]
+          })
+        })
+      }
+    });
+
+    for (const file of fileOrder) {
+      const srcCode = fs.readFileSync(path.join(srcDir, file), 'utf8');
+      assert.doesNotThrow(
+        () => vm.runInContext(srcCode, ctx, { filename: file }),
+        `ファイル順序 [${fileOrder.join(' -> ')}] の ${file} 評価時に構文エラーや識別子重複が発生してはならない`
+      );
+    }
+
+    const runtimeResult = vm.runInContext(
+      `(() => {
+        const ms = getMusicService();
+        const searchRes = apiSearchAlbums('GAS V8');
+        const mbLookupRes = apiLookupMusicBrainzRelease('${SAMPLE_MBID}');
+        return {
+          instancesOk: Boolean(
+            ms &&
+            ms.config instanceof Config &&
+            ms.sheetService instanceof SheetService &&
+            ms.driveService instanceof DriveService &&
+            ms.itunesService instanceof ItunesService &&
+            ms.musicBrainzService instanceof MusicBrainzService
+          ),
+          searchOk: Boolean(searchRes && searchRes.success === true && searchRes.data.albums.length === 2),
+          lookupOk: Boolean(mbLookupRes && mbLookupRes.success === true && mbLookupRes.data.albumDetail.tracks.length === 1)
+        };
+      })()`,
+      ctx
+    );
+    assert.strictEqual(runtimeResult.instancesOk, true);
+    assert.strictEqual(runtimeResult.searchOk, true);
+    assert.strictEqual(runtimeResult.lookupOk, true);
+  }
+});
+
 Promise.all(pendingPromises).then(() => {
   console.log('\n===============================================================');
   console.log(`QA検証完了: 成功 = ${passCount}, 失敗 = ${failCount}`);
@@ -884,4 +996,5 @@ Promise.all(pendingPromises).then(() => {
     process.exit(1);
   }
 });
+
 

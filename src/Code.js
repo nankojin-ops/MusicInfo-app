@@ -1,10 +1,3 @@
-var Config = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
-var SheetService = (typeof SheetService !== 'undefined') ? SheetService : (typeof require !== 'undefined' ? require('./SheetService') : null);
-var DriveService = (typeof DriveService !== 'undefined') ? DriveService : (typeof require !== 'undefined' ? require('./DriveService') : null);
-var ItunesService = (typeof ItunesService !== 'undefined') ? ItunesService : (typeof require !== 'undefined' ? require('./ItunesService') : null);
-var MusicBrainzService = (typeof MusicBrainzService !== 'undefined') ? MusicBrainzService : (typeof require !== 'undefined' ? require('./MusicBrainzService') : null);
-var MusicService = (typeof MusicService !== 'undefined') ? MusicService : (typeof require !== 'undefined' ? require('./MusicService') : null);
-
 /**
  * Web Apps エントリーポイント
  * @param {GoogleAppsScript.Events.DoGet} e
@@ -41,12 +34,19 @@ function include(filename) {
  * @returns {MusicService}
  */
 function getMusicService() {
-  const config = new Config();
-  const sheetService = new SheetService(config);
-  const driveService = new DriveService(config);
-  const itunesService = new ItunesService();
-  const musicBrainzService = new MusicBrainzService(config);
-  return new MusicService(config, sheetService, driveService, itunesService, musicBrainzService);
+  const ConfigCls = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
+  const SheetServiceCls = (typeof SheetService !== 'undefined') ? SheetService : (typeof require !== 'undefined' ? require('./SheetService') : null);
+  const DriveServiceCls = (typeof DriveService !== 'undefined') ? DriveService : (typeof require !== 'undefined' ? require('./DriveService') : null);
+  const ItunesServiceCls = (typeof ItunesService !== 'undefined') ? ItunesService : (typeof require !== 'undefined' ? require('./ItunesService') : null);
+  const MusicBrainzServiceCls = (typeof MusicBrainzService !== 'undefined') ? MusicBrainzService : (typeof require !== 'undefined' ? require('./MusicBrainzService') : null);
+  const MusicServiceCls = (typeof MusicService !== 'undefined') ? MusicService : (typeof require !== 'undefined' ? require('./MusicService') : null);
+
+  const config = new ConfigCls();
+  const sheetService = new SheetServiceCls(config);
+  const driveService = new DriveServiceCls(config);
+  const itunesService = new ItunesServiceCls();
+  const musicBrainzService = new MusicBrainzServiceCls(config);
+  return new MusicServiceCls(config, sheetService, driveService, itunesService, musicBrainzService);
 }
 
 /**

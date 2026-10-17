@@ -1,4 +1,6 @@
-var Config = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
+if (typeof Config === 'undefined' && typeof require !== 'undefined') {
+  globalThis.Config = require('./Config');
+}
 
 /**
  * Apple iTunes API連携クライアントクラス

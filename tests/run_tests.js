@@ -1026,6 +1026,122 @@ jsFiles.forEach((file) => {
   }
 });
 
+// 8.1. GAS V8 ランタイム 単一グローバルスコープ共有シミュレーション検証 (再発防止)
+console.log('\n[8.1] GAS V8 ランタイム 単一グローバルスコープ共有シミュレーションテスト');
+(() => {
+  const allSrcJsFiles = fs.readdirSync(srcDir).filter(f => f.endsWith('.js')).sort();
+  const orderPatterns = [
+    { name: 'アルファベット順 (Code.js 先頭)', list: [...allSrcJsFiles] },
+    { name: '逆アルファベット順 (SheetService.js 先頭)', list: [...allSrcJsFiles].reverse() },
+    { name: '依存定義順 (Config.js 先頭〜Code.js 末尾)', list: ['Config.js', 'SheetService.js', 'DriveService.js', 'ItunesService.js', 'MusicBrainzService.js', 'MusicService.js', 'Code.js'] }
+  ];
+
+  orderPatterns.forEach((pattern) => {
+    const gasContext = vm.createContext({
+      console,
+      PropertiesService: {
+        getScriptProperties: () => ({
+          getProperties: () => ({
+            SPREADSHEET_ID: 'gas-vm-ss-id',
+            DRIVE_FOLDER_ID: 'gas-vm-drive-id',
+            SHEET_NAME: 'MusicTracks'
+          })
+        })
+      },
+      CacheService: {
+        getScriptCache: () => ({ get: () => null, put: () => {} })
+      },
+      Utilities: {
+        sleep: () => {},
+        formatDate: () => '2026-10-18'
+      },
+      UrlFetchApp: {
+        fetchAll: () => [
+          {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({
+              results: [{
+                wrapperType: 'collection',
+                collectionId: 12345,
+                collectionName: 'GAS V8 Shared Scope Album',
+                artistName: 'GAS Artist',
+                releaseDate: '2026-01-01',
+                trackCount: 10
+              }]
+            })
+          },
+          {
+            getResponseCode: () => 200,
+            getContentText: () => JSON.stringify({ releases: [] })
+          }
+        ],
+        fetch: () => ({
+          getResponseCode: () => 200,
+          getContentText: () => JSON.stringify({ results: [], releases: [] })
+        })
+      }
+    });
+
+    let loadError = null;
+    for (const file of pattern.list) {
+      const code = fs.readFileSync(path.join(srcDir, file), 'utf8');
+      try {
+        vm.runInContext(code, gasContext, { filename: file });
+      } catch (err) {
+        loadError = new Error(`[${pattern.name}] ${file} 読み込み時にエラー: ${err.message}`);
+        break;
+      }
+    }
+    assert(loadError === null, `GAS V8 単一グローバルスコープ評価 (${pattern.name}) で Identifier 重複等の SyntaxError が発生しないこと${loadError ? ': ' + loadError.message : ''}`);
+
+    // 全クラスおよびRPC関数が同一グローバルコンテキスト内で共存・動作することを検証
+    try {
+      const verifyResult = vm.runInContext(`
+        (function() {
+          const classesAvailable = [
+            typeof Config === 'function',
+            typeof SheetService === 'function',
+            typeof DriveService === 'function',
+            typeof ItunesService === 'function',
+            typeof MusicBrainzService === 'function',
+            typeof MusicService === 'function'
+          ].every(Boolean);
+
+          const rpcsAvailable = [
+            typeof doGet === 'function',
+            typeof include === 'function',
+            typeof getMusicService === 'function',
+            typeof apiGetAllData === 'function',
+            typeof apiSearchAlbums === 'function',
+            typeof apiSearchItunes === 'function',
+            typeof apiLookupItunesAlbum === 'function',
+            typeof apiLookupMusicBrainzRelease === 'function',
+            typeof apiSaveAlbumBatch === 'function',
+            typeof apiSaveTrackSingle === 'function',
+            typeof apiUpdateAlbumBatch === 'function'
+          ].every(Boolean);
+
+          const ms = getMusicService();
+          const searchRes = apiSearchAlbums('GAS V8 Test');
+          return {
+            classesAvailable,
+            rpcsAvailable,
+            msCreated: Boolean(ms && ms.config && ms.musicBrainzService),
+            searchSuccess: Boolean(searchRes && searchRes.success === true && searchRes.data.albums.length === 1)
+          };
+        })();
+      `, gasContext);
+
+      assert(
+        verifyResult.classesAvailable && verifyResult.rpcsAvailable && verifyResult.msCreated && verifyResult.searchSuccess,
+        `GAS V8 単一グローバルスコープ (${pattern.name}) 内で全6クラスと全RPC関数が正常にインスタンス化・実行できること`
+      );
+    } catch (err) {
+      assert(false, `GAS V8 単一グローバルスコープ (${pattern.name}) 実行時エラー: ${err.message}`);
+    }
+  });
+})();
+
 const htmlScriptFiles = ['ScriptsUtils.html', 'ScriptsApiClient.html', 'ScriptsState.html', 'ScriptsApp.html'];
 htmlScriptFiles.forEach((file) => {
   const content = fs.readFileSync(path.join(srcDir, file), 'utf8');

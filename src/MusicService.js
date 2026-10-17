@@ -1,6 +1,6 @@
-var MusicBrainzService = (typeof MusicBrainzService !== 'undefined')
-  ? MusicBrainzService
-  : (typeof require !== 'undefined' ? require('./MusicBrainzService') : null);
+if (typeof MusicBrainzService === 'undefined' && typeof require !== 'undefined') {
+  globalThis.MusicBrainzService = require('./MusicBrainzService');
+}
 
 /**
  * 音楽カタログ業務ロジック統括オーケストレーター

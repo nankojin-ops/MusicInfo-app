@@ -4,7 +4,7 @@
 - **担当**: シニアコーダー (`senior-coder`)
 - **準拠設計書**: [`docs/architecture/musicbrainz_search_merge_design.md`](file:///e:/Antigravity/MusicInfo-app/docs/architecture/musicbrainz_search_merge_design.md)
 - **準拠実装計画書**: [`docs/planning/musicbrainz_search_merge_plan.md`](file:///e:/Antigravity/MusicInfo-app/docs/planning/musicbrainz_search_merge_plan.md)
-- **ステータス**: 完了（全受け入れ基準 AC-1〜AC-18 達成・全自動テスト 341件 100% PASS）
+- **ステータス**: 完了（全受け入れ基準 AC-1〜AC-18 達成・全自動テスト 357件 100% PASS）
 
 ---
 
@@ -40,7 +40,7 @@
 ### TASK-005: GAS 公開 RPC エンドポイントの追加（[`src/Code.js`](file:///e:/Antigravity/MusicInfo-app/src/Code.js)）
 - `getMusicService()` で `MusicBrainzService` を生成・注入するよう更新しました。
 - 新規公開 RPC 関数 `apiSearchAlbums(keyword)` および `apiLookupMusicBrainzRelease(mbid)` を追加し、`module.exports` にもエクスポートしました。
-- 既存の `apiSearchItunesAlbums` / `apiLookupItunesAlbum` / `apiSaveAlbumBatch` のシグネチャと動作を完全維持しました。
+- 既存の `apiSearchItunes` / `apiLookupItunesAlbum` / `apiSaveAlbumBatch` のシグネチャと動作を完全維持しました。
 
 ### TASK-006: フロントエンド UI 文言変更・出典バッジ・Lookup 分岐（[`src/Navbar.html`](file:///e:/Antigravity/MusicInfo-app/src/Navbar.html), [`src/ItunesModal.html`](file:///e:/Antigravity/MusicInfo-app/src/ItunesModal.html), [`src/ScriptsApiClient.html`](file:///e:/Antigravity/MusicInfo-app/src/ScriptsApiClient.html), [`src/ScriptsState.html`](file:///e:/Antigravity/MusicInfo-app/src/ScriptsState.html), [`src/ScriptsApp.html`](file:///e:/Antigravity/MusicInfo-app/src/ScriptsApp.html)）
 - **ボタン・モーダル名称変更**:
@@ -59,8 +59,8 @@
 - [`README.md`](file:///e:/Antigravity/MusicInfo-app/README.md) に MusicBrainz / Cover Art Archive 統合検索仕様、スクリプトプロパティ（`MUSICBRAINZ_USER_AGENT`, `MUSICBRAINZ_ENABLED`）、および新しいボタン名称を記載しました。
 - `node build.js` を実行し、[`src/index.html`](file:///e:/Antigravity/MusicInfo-app/src/index.html) を再生成しました。
 
-### TASK-008: 単体テスト・統合テスト・レッドチーム検証の拡充（[`tests/run_tests.js`](file:///e:/Antigravity/MusicInfo-app/tests/run_tests.js), [`tests/red_team_attack_test.js`](file:///e:/Antigravity/MusicInfo-app/tests/red_team_attack_test.js)）
-- [`tests/run_tests.js`](file:///e:/Antigravity/MusicInfo-app/tests/run_tests.js) に `Config`、`MusicBrainzService`、`MusicService`（4条件重複排除・ソート順・片系失敗フォールバック・機能スイッチ）、`SheetService`（G列 `'@'` 書式設定）、`Code.js`、UI 文言検証テストを追加しました。
+### TASK-008: 単体テスト・統合テスト・レッドチーム検証の拡充（[`tests/run_tests.js`](file:///e:/Antigravity/MusicInfo-app/tests/run_tests.js), [`tests/red_team_attack_test.js`](file:///e:/Antigravity/MusicInfo-app/tests/red_team_attack_test.js), [`tests/qa_comprehensive_test.js`](file:///e:/Antigravity/MusicInfo-app/tests/qa_comprehensive_test.js)）
+- [`tests/run_tests.js`](file:///e:/Antigravity/MusicInfo-app/tests/run_tests.js) に `Config`、`MusicBrainzService`、`MusicService`（4条件重複排除・ソート順・片系失敗フォールバック・機能スイッチ）、`SheetService`（G列 `'@'` 書式設定）、`Code.js`、UI 文言検証、および GAS V8 単一グローバルスコープ共有シミュレーションテストを追加しました。
 - [`tests/red_team_attack_test.js`](file:///e:/Antigravity/MusicInfo-app/tests/red_team_attack_test.js) に MBID インジェクション耐性、Lucene クエリ構文インジェクション耐性、悪意ある MusicBrainz JSON ペイロード（XSS・数式インジェクション・空オブジェクト欠損）耐性、フロントエンド XSS 防御テストを追加しました。
 
 ---
@@ -82,8 +82,9 @@
 | [`src/ScriptsApp.html`](file:///e:/Antigravity/MusicInfo-app/src/ScriptsApp.html) | 変更 | 統合検索呼び出し、出典バッジ・MB補足情報描画、source別Lookup分岐、部分日付保護、インラインonerror排除 |
 | [`src/index.html`](file:///e:/Antigravity/MusicInfo-app/src/index.html) | 再生成 | `node build.js` による単一ファイルバンドル更新 |
 | [`README.md`](file:///e:/Antigravity/MusicInfo-app/README.md) | 変更 | MusicBrainz 統合検索仕様・スクリプトプロパティ・ボタン名称のドキュメント反映 |
-| [`tests/run_tests.js`](file:///e:/Antigravity/MusicInfo-app/tests/run_tests.js) | 変更 | MusicBrainz・統合検索・重複排除・UI文言の単体テスト追加（計167件） |
+| [`tests/run_tests.js`](file:///e:/Antigravity/MusicInfo-app/tests/run_tests.js) | 変更 | MusicBrainz・統合検索・重複排除・UI文言・GAS V8グローバルスコープ検証テスト追加（計173件） |
 | [`tests/red_team_attack_test.js`](file:///e:/Antigravity/MusicInfo-app/tests/red_team_attack_test.js) | 変更 | MBID/Lucene/JSON/XSS/数式インジェクション破壊的テスト追加（計159件） |
+| [`tests/qa_comprehensive_test.js`](file:///e:/Antigravity/MusicInfo-app/tests/qa_comprehensive_test.js) | 変更 | MB境界値・動的DOM統合・GAS V8単一グローバルスコープ衝突防止テスト追加（計25件） |
 
 ---
 
@@ -94,9 +95,9 @@
 | 検証項目 | 実行コマンド | 結果 | 詳細 |
 | :--- | :--- | :--- | :--- |
 | バンドルビルド | `node build.js` | **成功 (Exit 0)** | `src/index.html` 生成完了 |
-| 単体・統合・構文テスト | `node tests/run_tests.js` | **167件 PASS / 0件 FAIL** | AC-1〜AC-18・VM構文解析すべて合格 |
+| 単体・統合・構文テスト | `node tests/run_tests.js` | **173件 PASS / 0件 FAIL** | AC-1〜AC-18・VM構文・GAS V8単一スコープ検証すべて合格 |
 | レッドチーム破壊的テスト | `node tests/red_team_attack_test.js` | **159件 PASS / 0件 FAIL** | 指摘・脆弱性 0件 |
-| QA包括的回帰テスト | `node tests/qa_comprehensive_test.js` | **15件 PASS / 0件 FAIL** | 既存機能・回帰テストすべて合格 |
+| QA包括的回帰テスト | `node tests/qa_comprehensive_test.js` | **25件 PASS / 0件 FAIL** | 既存機能・回帰・GAS V8スコープ検証すべて合格 |
 
 ### 3.2 受け入れ基準（AC-1〜AC-18）達成状況
 - **AC-1（統合検索）**: `MusicService.searchAlbums` が iTunes と MusicBrainz の両方を並列検索し統合配列を返却することを検証済み。
@@ -116,3 +117,19 @@
 
 - **計画からの逸脱**: なし。アーキテクチャ設計書および実装計画書（`TASK-001`〜`TASK-008`）の通りに完全実装しました。
 - **未解決の課題・技術的負債**: なし。
+
+---
+
+## 5. GAS 実機デプロイ時の `SyntaxError: Identifier 'Config' has already been declared` 緊急修正（追記）
+
+### 5.1 発生事象と根本原因
+- **発生事象**: GAS（V8 ランタイム）へデプロイして実行した際、`SyntaxError: Identifier 'Config' has already been declared（行 1、ファイル「Config」）` が発生しました。
+- **根本原因**: GAS（V8 ランタイム）ではプロジェクト内の全 `.js` ファイルが**単一のトップレベルグローバルスコープを共有**して順次評価されます。Node.js 単体テスト互換のために `src/Code.js`, `src/ItunesService.js`, `src/MusicBrainzService.js`, `src/MusicService.js` のトップレベルへ追加していた `var Config = ...` 等のグローバル変数宣言が、各ファイル内の `class Config` 等のレキシカル宣言と同一グローバルスコープ内で衝突したことが原因でした。
+
+### 5.2 修正内容
+1. **トップレベル `var` 宣言の完全撤廃**:
+   - [`src/Code.js`](file:///e:/Antigravity/MusicInfo-app/src/Code.js): トップレベルの `var Config` / `var SheetService` / `var DriveService` / `var ItunesService` / `var MusicBrainzService` / `var MusicService` 宣言をすべて削除し、`getMusicService()` 関数内部のローカルスコープで各クラスを解決する方式に統一しました。
+   - [`src/ItunesService.js`](file:///e:/Antigravity/MusicInfo-app/src/ItunesService.js), [`src/MusicBrainzService.js`](file:///e:/Antigravity/MusicInfo-app/src/MusicBrainzService.js), [`src/SheetService.js`](file:///e:/Antigravity/MusicInfo-app/src/SheetService.js), [`src/MusicService.js`](file:///e:/Antigravity/MusicInfo-app/src/MusicService.js): トップレベルの `var` 宣言を撤廃し、Node.js 環境で単体 `require()` された場合のみ `if (typeof Config === 'undefined' && typeof require !== 'undefined') { globalThis.Config = require('./Config'); }` のように `globalThis` プロパティへ代入（トップレベル識別子宣言を伴わない形式）する方式へ修正しました。
+2. **再発防止の GAS V8 グローバルスコープ共有シミュレーションテスト追加**:
+   - [`tests/run_tests.js`](file:///e:/Antigravity/MusicInfo-app/tests/run_tests.js)（セクション `[8.1]`）および [`tests/qa_comprehensive_test.js`](file:///e:/Antigravity/MusicInfo-app/tests/qa_comprehensive_test.js)（セクション `[8]`）に、`src/*.js` 全7ファイルを単一の `vm.createContext(...)` コンテキスト内で複数順序（アルファベット順・逆順・依存定義順）で連続評価し、識別子重複エラーが一切発生せず全6クラスと全 RPC 関数が正常に動作することを自動検証するテストを追加しました。
+

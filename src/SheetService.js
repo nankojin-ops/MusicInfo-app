@@ -1,3 +1,7 @@
+if (typeof Config === 'undefined' && typeof require !== 'undefined') {
+  globalThis.Config = require('./Config');
+}
+
 /**
  * スプレッドシート永続化およびデータマッピングクラスタ
  */

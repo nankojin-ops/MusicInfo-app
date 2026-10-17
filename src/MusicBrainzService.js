@@ -1,14 +1,16 @@
+if (typeof Config === 'undefined' && typeof require !== 'undefined') {
+  globalThis.Config = require('./Config');
+}
+
 /**
  * MusicBrainz API (Web Service v2) & Cover Art Archive 連携クライアントクラス
  */
-var Config = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
-
 class MusicBrainzService {
   /**
    * @param {Config} [config] 省略時は内部で new Config() を生成
    */
   constructor(config) {
-    this.config = config || (Config ? new Config() : null);
+    this.config = config || (typeof Config !== 'undefined' && Config ? new Config() : null);
     this.lastRequestTs_ = 0;
   }
 
