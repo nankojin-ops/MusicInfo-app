@@ -104,6 +104,24 @@ class ApiClient {
   updateAlbumBatch(payload) {
     return this.callGAS('apiUpdateAlbumBatch', payload);
   }
+
+  /**
+   * ローカルアートワーク画像アップロード
+   * @param {Object} payload 
+   * @returns {Promise<{ fileId: string, publicUrl: string, fileName: string }>}
+   */
+  uploadArtwork(payload) {
+    return this.callGAS('apiUploadArtwork', payload);
+  }
+
+  /**
+   * Google Drive画像解決・複製
+   * @param {Object} payload 
+   * @returns {Promise<{ fileId: string, publicUrl: string, fileName: string }>}
+   */
+  resolveDriveArtwork(payload) {
+    return this.callGAS('apiResolveDriveArtwork', payload);
+  }
 }
 
 if (typeof window !== 'undefined') {

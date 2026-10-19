@@ -97,6 +97,19 @@ const DriveService = require('../src/DriveService');
 const driveService = new DriveService(config);
 
 assert(driveService.sanitizeFileName('Album: Greatest / Hits? *2026*') === 'Album_Greatest_Hits_2026', 'ファイル名サニタイズ');
+
+// [BUG-003] 長大マルチバイト（絵文字）切断時の孤立サロゲート除去
+const emojiName = 'A'.repeat(59) + '😀';
+const sanitizedEmoji = driveService.sanitizeFileName(emojiName);
+assert(sanitizedEmoji.length <= 60, 'sanitizeFileName: 長大文字列が60文字以内 (BUG-003)');
+assert(typeof sanitizedEmoji.isWellFormed === 'function' ? sanitizedEmoji.isWellFormed() : !/[\uD800-\uDBFF]$/.test(sanitizedEmoji), 'sanitizeFileName: 孤立上位サロゲートが除去され Well-Formed UTF-16 であること (BUG-003)');
+assert(sanitizedEmoji === 'A'.repeat(59), 'sanitizeFileName: 59文字+絵文字で絵文字が安全に切り落とされ59文字になること (BUG-003)');
+
+// [BUG-004] アルバム名が単一ドットまたはドットのみの場合のフォールバック
+assert(driveService.sanitizeFileName('.') === 'album', 'sanitizeFileName: 単一ドット "." で "album" フォールバック (BUG-004)');
+assert(driveService.sanitizeFileName('..') === 'album', 'sanitizeFileName: ドットのみ ".." で "album" フォールバック (BUG-004)');
+assert(driveService.sanitizeFileName('...') === 'album', 'sanitizeFileName: ドットのみ "..." で "album" フォールバック (BUG-004)');
+assert(driveService.sanitizeFileName('   .   ') === 'album', 'sanitizeFileName: 空白付きドット "   .   " で "album" フォールバック (BUG-004)');
 assert(driveService.generateWebUrl('abc123xyz') === 'https://drive.google.com/thumbnail?id=abc123xyz&sz=w800', 'Web表示URL生成');
 assert(driveService.extractDriveFileId('https://drive.google.com/file/d/abc1234567890123456789012345/view') === 'abc1234567890123456789012345', 'DriveService: /file/d/ からのID抽出');
 assert(driveService.extractDriveFileId('https://drive.google.com/uc?export=view&id=abc1234567890123456789012345') === 'abc1234567890123456789012345', 'DriveService: ?id= からのID抽出');
@@ -116,6 +129,235 @@ assert(
   'DriveService: ensurePublicArtwork (外部URL・Node.js環境防御)'
 );
 assert(driveService.ensurePublicArtwork('', 'Album') === '', 'DriveService: ensurePublicArtwork (空文字)');
+
+// [2.1] 新命名規則 generateArtworkFileName のテスト (AC-001)
+const testDate1 = new Date('2026-10-19T11:45:32.000Z'); // JST 2026-10-19 20:45:32
+assert(
+  driveService.generateArtworkFileName('First Love', 'jpg', testDate1) === 'artwork_First_Love_20261019204500.jpg',
+  'generateArtworkFileName: JST日時および秒00固定フォーマット完全一致 (AC-001-1)'
+);
+assert(
+  driveService.generateArtworkFileName('A/B*C:D? "Test"', 'jpg', testDate1) === 'artwork_A_B_C_D_Test_20261019204500.jpg',
+  'generateArtworkFileName: 記号・禁止文字のサニタイズ (AC-001-2)'
+);
+assert(
+  driveService.generateArtworkFileName('', 'jpg', testDate1) === 'artwork_album_20261019204500.jpg',
+  'generateArtworkFileName: 空文字アルバム名での "album" フォールバック (AC-001-3)'
+);
+assert(
+  driveService.generateArtworkFileName('Test Album', 'png', testDate1) === 'artwork_Test_Album_20261019204500.png',
+  'generateArtworkFileName: PNG拡張子の反映 (AC-001-4)'
+);
+assert(
+  driveService.generateArtworkFileName('Test Album', '.webp', testDate1) === 'artwork_Test_Album_20261019204500.webp',
+  'generateArtworkFileName: 先頭ドット付きWebP拡張子の反映 (AC-001-4)'
+);
+
+// [2.2] downloadAndSaveArtwork での新命名規則適用検証 (AC-001-5)
+let createdFileName = '';
+global.DriveApp = {
+  getFolderById: (id) => ({
+    createFile: (blob) => {
+      createdFileName = blob.getName();
+      return {
+        getId: () => 'mock-file-id-itunes',
+        setSharing: () => {}
+      };
+    }
+  }),
+  Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' },
+  Permission: { VIEW: 'VIEW' }
+};
+global.UrlFetchApp = {
+  fetch: () => ({
+    getResponseCode: () => 200,
+    getBlob: () => {
+      let bName = '';
+      let bType = '';
+      return {
+        setName: (n) => { bName = n; },
+        getName: () => bName,
+        setContentType: (t) => { bType = t; }
+      };
+    }
+  })
+};
+
+driveService.downloadAndSaveArtwork('https://example.com/art.jpg', 'Utada Album');
+assert(
+  createdFileName.startsWith('artwork_Utada_Album_') && createdFileName.endsWith('00.jpg'),
+  'downloadAndSaveArtwork: 新命名規則 (artwork_xxx_YYYYMMDDHHMM00.jpg) が適用されていること (AC-001-5)'
+);
+
+// [2.3] saveUploadedArtwork 単体テスト (AC-002)
+let savedFileBlob = null;
+global.DriveApp = {
+  getFolderById: (id) => ({
+    createFile: (blob) => {
+      savedFileBlob = blob;
+      return {
+        getId: () => 'mock-uploaded-file-id',
+        setSharing: () => {}
+      };
+    }
+  }),
+  Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' },
+  Permission: { VIEW: 'VIEW' }
+};
+
+// 正常系: DataURLプレフィックス付きBase64
+const sampleBase64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBD';
+const uploadRes1 = driveService.saveUploadedArtwork(sampleBase64, 'image/jpeg', 'My Album');
+assert(
+  uploadRes1 && uploadRes1.fileId === 'mock-uploaded-file-id' &&
+  uploadRes1.publicUrl === 'https://lh3.googleusercontent.com/d/mock-uploaded-file-id' &&
+  uploadRes1.fileName.startsWith('artwork_My_Album_') && uploadRes1.fileName.endsWith('.jpg'),
+  'saveUploadedArtwork: DataURL付きBase64の正常保存と公開URL返却 (AC-002-1)'
+);
+
+// 正常系: プレーンBase64 & PNG
+const plainBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const uploadRes2 = driveService.saveUploadedArtwork(plainBase64, 'image/png', 'PNG Album');
+assert(
+  uploadRes2 && uploadRes2.fileName.endsWith('.png'),
+  'saveUploadedArtwork: プレーンBase64およびPNG拡張子の正常保存'
+);
+
+// 異常系: 不正MIMEタイプ (AC-002-4)
+assertThrows(
+  () => driveService.saveUploadedArtwork(sampleBase64, 'application/pdf', 'Bad Album'),
+  'VALIDATION_FAILED',
+  'saveUploadedArtwork: 不正MIME (application/pdf) で例外送出 (AC-002-4)'
+);
+assertThrows(
+  () => driveService.saveUploadedArtwork('data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', '', 'Bad Gif'),
+  'VALIDATION_FAILED',
+  'saveUploadedArtwork: 不正MIME (image/gif) で例外送出 (AC-002-4)'
+);
+
+// [BUG-001] DataURLヘッダ優先およびMIME偽装バイパス脆弱性検証
+const uploadResHeaderOnly = driveService.saveUploadedArtwork(sampleBase64, '', 'Header Only Album');
+assert(
+  uploadResHeaderOnly && uploadResHeaderOnly.fileName.endsWith('.jpg'),
+  'saveUploadedArtwork: 引数mimeTypeが空でもDataURLヘッダからMIME特定 (BUG-001)'
+);
+
+assertThrows(
+  () => driveService.saveUploadedArtwork('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'image/jpeg', 'Mismatched Album'),
+  'VALIDATION_FAILED',
+  'saveUploadedArtwork: DataURLヘッダ(png)と引数mimeType(jpeg)の不一致で VALIDATION_FAILED (BUG-001)'
+);
+
+assertThrows(
+  () => driveService.saveUploadedArtwork('data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==', 'image/jpeg', 'XSS Album'),
+  'VALIDATION_FAILED',
+  'saveUploadedArtwork: DataURLヘッダが不正MIMEの場合に引数偽装があっても VALIDATION_FAILED (BUG-001)'
+);
+
+assertThrows(
+  () => driveService.saveUploadedArtwork(sampleBase64, 'image/gif', 'Bad Param Album'),
+  'VALIDATION_FAILED',
+  'saveUploadedArtwork: 引数が不正MIME(image/gif)の場合に VALIDATION_FAILED (BUG-001)'
+);
+
+// 異常系: 5MB超過 (AC-002-3)
+const bigBuffer = Buffer.alloc(5 * 1024 * 1024 + 10);
+const bigBase64 = bigBuffer.toString('base64');
+assertThrows(
+  () => driveService.saveUploadedArtwork(bigBase64, 'image/jpeg', 'Huge Album'),
+  'VALIDATION_FAILED',
+  'saveUploadedArtwork: 5MB超過で VALIDATION_FAILED 例外送出 (AC-002-3)'
+);
+
+// 異常系: 空データ
+assertThrows(
+  () => driveService.saveUploadedArtwork('', 'image/jpeg', 'Empty Album'),
+  'VALIDATION_FAILED',
+  'saveUploadedArtwork: 空画像データで例外送出'
+);
+
+// [2.4] importArtworkFromDrive 単体テスト (AC-003)
+let copiedNewName = '';
+let copiedFolder = null;
+global.DriveApp = {
+  getFolderById: (id) => ({ id: id }),
+  getFileById: (id) => {
+    if (id === 'forbidden-file-id12345678901234') {
+      throw new Error('Access denied');
+    }
+    if (id === 'non-image-file-id123456789012345') {
+      return {
+        getId: () => id,
+        getMimeType: () => 'text/plain',
+        getName: () => 'notes.txt'
+      };
+    }
+    if (id === 'no-copy-permission-id123456789') {
+      return {
+        getId: () => id,
+        getMimeType: () => 'image/png',
+        getName: () => 'readonly.png',
+        makeCopy: () => { throw new Error('Copy permission denied'); },
+        setSharing: () => {}
+      };
+    }
+    return {
+      getId: () => id,
+      getMimeType: () => 'image/jpeg',
+      getName: () => 'original.jpg',
+      makeCopy: (newName, targetFolder) => {
+        copiedNewName = newName;
+        copiedFolder = targetFolder;
+        return {
+          getId: () => 'copied-new-file-id',
+          getName: () => newName,
+          setSharing: () => {}
+        };
+      },
+      setSharing: () => {}
+    };
+  },
+  Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' },
+  Permission: { VIEW: 'VIEW' }
+};
+
+// 正常系: 有効なDrive URLからコピー作成
+const driveImportRes = driveService.importArtworkFromDrive('https://drive.google.com/file/d/valid-drive-12345678901234567890/view', 'Imported Album');
+assert(
+  driveImportRes && driveImportRes.fileId === 'copied-new-file-id' &&
+  driveImportRes.publicUrl === 'https://lh3.googleusercontent.com/d/copied-new-file-id' &&
+  copiedNewName.startsWith('artwork_Imported_Album_') && copiedNewName.endsWith('.jpg'),
+  'importArtworkFromDrive: 専用管理フォルダへの複製と新命名規則適用 (AC-003-2)'
+);
+
+// 異常系: 非画像ファイルの指定拒絶
+assertThrows(
+  () => driveService.importArtworkFromDrive('non-image-file-id123456789012345', 'Text Album'),
+  'VALIDATION_FAILED',
+  'importArtworkFromDrive: 非画像形式ファイル指定時に例外送出'
+);
+
+// 異常系: アクセス不能ファイル (AC-003-3)
+assertThrows(
+  () => driveService.importArtworkFromDrive('forbidden-file-id12345678901234', 'Denied Album'),
+  'DRIVE_ACCESS_DENIED',
+  'importArtworkFromDrive: アクセス権のないDrive URLで DRIVE_ACCESS_DENIED 送出 (AC-003-3)'
+);
+
+// 異常系: 不正なURL/ID
+assertThrows(
+  () => driveService.importArtworkFromDrive('https://example.com/not-drive', 'Invalid URL'),
+  'INVALID_DRIVE_ID',
+  'importArtworkFromDrive: 不正なDrive URLで INVALID_DRIVE_ID 送出'
+);
+
+// 縮退動作 (Graceful Degradation): コピー権限なし時に元ファイルの公開URLへフォールバック
+const fallbackRes = driveService.importArtworkFromDrive('no-copy-permission-id123456789', 'Fallback Album');
+assert(
+  fallbackRes && fallbackRes.fileId === 'no-copy-permission-id123456789' &&
+  fallbackRes.publicUrl === 'https://lh3.googleusercontent.com/d/no-copy-permission-id123456789',
+  'importArtworkFromDrive: コピー作成失敗時の元ファイル公開URLフォールバック (Graceful Degradation)'
+);
 
 // 3. ItunesService のテスト
 console.log('\n[3] ItunesService のテスト');
@@ -1210,6 +1452,120 @@ try {
 } catch (err) {
   assert(false, `src/index.html 検証エラー: ${err.message}`);
 }
+
+// 10. 画像アップロード・Google Drive連携およびファイル命名規則統一のテスト
+console.log('\n[10] 画像アップロード・Google Drive連携およびファイル命名規則統一のテスト');
+
+// 10.1 Utils.validateImageFile テスト
+const validJpeg = { name: 'jacket.jpg', type: 'image/jpeg', size: 1024 * 1024 };
+assert(Utils.validateImageFile(validJpeg).valid === true, 'Utils.validateImageFile: 正常なJPEG画像');
+const validPng = { name: 'art.png', type: 'image/png', size: 2 * 1024 * 1024 };
+assert(Utils.validateImageFile(validPng).valid === true, 'Utils.validateImageFile: 正常なPNG画像');
+const validWebp = { name: 'cover.webp', type: 'image/webp', size: 500 * 1024 };
+assert(Utils.validateImageFile(validWebp).valid === true, 'Utils.validateImageFile: 正常なWebP画像');
+
+const extOnlyJpeg = { name: 'photo.JPEG', type: '', size: 500 * 1024 };
+assert(Utils.validateImageFile(extOnlyJpeg).valid === true && Utils.validateImageFile(extOnlyJpeg).mimeType === 'image/jpeg', 'Utils.validateImageFile: type空時の拡張子フォールバック');
+
+const overSize = { name: 'huge.jpg', type: 'image/jpeg', size: 5 * 1024 * 1024 + 1 };
+const overRes = Utils.validateImageFile(overSize);
+assert(overRes.valid === false && overRes.error.includes('5MB以内'), 'Utils.validateImageFile: 5MB超過の遮断 (AC-002-3)');
+
+const badPdf = { name: 'doc.pdf', type: 'application/pdf', size: 1024 };
+const pdfRes = Utils.validateImageFile(badPdf);
+assert(pdfRes.valid === false && pdfRes.error.includes('対応形式はJPEG、PNG、WebPのみ'), 'Utils.validateImageFile: 不正形式 (PDF) の遮断 (AC-002-4)');
+
+const badGif = { name: 'anim.gif', type: 'image/gif', size: 1024 };
+assert(Utils.validateImageFile(badGif).valid === false, 'Utils.validateImageFile: 不正形式 (GIF) の遮断 (AC-002-4)');
+
+assert(Utils.validateImageFile(null).valid === false, 'Utils.validateImageFile: null指定時の遮断');
+
+// 10.2 Code.js RPC エンドポイントテスト
+global.PropertiesService = {
+  getScriptProperties: () => ({
+    getProperties: () => ({
+      SPREADSHEET_ID: 'test-ss-id',
+      DRIVE_FOLDER_ID: 'test-drive-id',
+      SHEET_NAME: 'CustomTracks'
+    })
+  })
+};
+
+global.DriveApp = {
+  getFolderById: (id) => ({
+    id: id,
+    createFile: (blob) => ({
+      getId: () => 'mock-rpc-file-id',
+      getName: () => (blob && blob.getName ? blob.getName() : 'artwork.jpg'),
+      setSharing: () => {}
+    })
+  }),
+  getFileById: (id) => ({
+    getId: () => id,
+    getMimeType: () => 'image/jpeg',
+    getName: () => 'original.jpg',
+    makeCopy: (newName, targetFolder) => ({
+      getId: () => 'copied-rpc-file-id',
+      getName: () => newName,
+      setSharing: () => {}
+    }),
+    setSharing: () => {}
+  }),
+  Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' },
+  Permission: { VIEW: 'VIEW' }
+};
+
+// apiUploadArtwork RPCテスト
+const sampleUploadPayload = {
+  base64Data: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBD',
+  mimeType: 'image/jpeg',
+  albumName: 'RPC Album'
+};
+const rpcUploadOk = Code.apiUploadArtwork(sampleUploadPayload);
+assert(rpcUploadOk && rpcUploadOk.success === true && rpcUploadOk.data && rpcUploadOk.data.fileId, 'Code.apiUploadArtwork: 正常系 (success: true)');
+
+const rpcUploadNg = Code.apiUploadArtwork(null);
+assert(rpcUploadNg && rpcUploadNg.success === false && rpcUploadNg.code === 'VALIDATION_FAILED', 'Code.apiUploadArtwork: 異常系 (success: false)');
+
+// apiResolveDriveArtwork RPCテスト
+const sampleDrivePayload = {
+  driveUrlOrId: 'https://drive.google.com/file/d/valid-drive-12345678901234567890/view',
+  albumName: 'RPC Drive Album'
+};
+const rpcDriveOk = Code.apiResolveDriveArtwork(sampleDrivePayload);
+assert(rpcDriveOk && rpcDriveOk.success === true && rpcDriveOk.data && rpcDriveOk.data.publicUrl, 'Code.apiResolveDriveArtwork: 正常系 (success: true)');
+
+const rpcDriveNg = Code.apiResolveDriveArtwork({ driveUrlOrId: '' });
+assert(rpcDriveNg && rpcDriveNg.success === false && rpcDriveNg.code === 'VALIDATION_FAILED', 'Code.apiResolveDriveArtwork: 異常系 (success: false)');
+
+// 10.3 DriveArtworkModal の存在検証
+const driveModalPath = path.join(srcDir, 'DriveArtworkModal.html');
+assert(fs.existsSync(driveModalPath), 'DriveArtworkModal.html が存在する (TASK-005)');
+const indexHtmlForModal = fs.readFileSync(path.join(srcDir, 'index.html'), 'utf8');
+assert(indexHtmlForModal.includes('id="modal-drive-artwork"'), 'src/index.html に DriveArtworkModal がバンドルされていること');
+assert(indexHtmlForModal.includes('id="btn-edit-album-upload"'), 'src/index.html に EditAlbumModal のローカル選択ボタンが存在すること');
+assert(indexHtmlForModal.includes('id="btn-edit-album-drive"'), 'src/index.html に EditAlbumModal のDrive追加ボタンが存在すること');
+assert(indexHtmlForModal.includes('id="btn-manual-upload"'), 'src/index.html に ManualModal のローカル選択ボタンが存在すること');
+assert(indexHtmlForModal.includes('id="btn-manual-drive"'), 'src/index.html に ManualModal のDrive追加ボタンが存在すること');
+assert(indexHtmlForModal.includes('id="manual-art-preview"'), 'src/index.html に ManualModal のプレビュー画像枠が存在すること');
+
+// 10.4 [BUG-002] handleImageUpload実行中の親フォーム保存/登録/Driveボタン非活性化およびHTMLボタン存在検証
+const scriptsAppHtml = fs.readFileSync(path.join(srcDir, 'ScriptsApp.html'), 'utf8');
+const expectedRelatedBtns = [
+  'btn-submit-edit-album',
+  'btn-mobile-submit-edit-album',
+  'btn-submit-manual-track',
+  'btn-edit-album-drive',
+  'btn-manual-drive'
+];
+
+expectedRelatedBtns.forEach(btnId => {
+  assert(indexHtmlForModal.includes(`id="${btnId}"`), `src/index.html に親フォーム関連ボタン id="${btnId}" が存在する (BUG-002)`);
+  assert(scriptsAppHtml.includes(`'${btnId}'`), `ScriptsApp.html の handleImageUpload で '${btnId}' が非活性化対象に含まれている (BUG-002)`);
+});
+
+assert(scriptsAppHtml.includes('relatedBtns.forEach(btn => { btn.disabled = true; });'), 'handleImageUpload: アップロード中に親フォームボタンが disabled 化される (BUG-002)');
+assert(scriptsAppHtml.includes('relatedBtns.forEach(btn => { btn.disabled = false; });'), 'handleImageUpload: finally ブロックで親フォームボタンが活性化復帰される (BUG-002)');
 
 console.log('\n==================================================');
 console.log(`テスト結果サマリー: 成功 = ${passCount}, 失敗 = ${failCount}`);

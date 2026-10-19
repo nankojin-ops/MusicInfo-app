@@ -236,6 +236,54 @@ function apiUpdateAlbumBatch(payload) {
   }
 }
 
+/**
+ * 【RPC】ローカルアートワーク画像アップロードAPI
+ * @param {Object} payload 
+ * @returns {ApiResponse}
+ */
+function apiUploadArtwork(payload) {
+  try {
+    const data = getMusicService().uploadArtwork(payload);
+    return {
+      success: true,
+      data: data,
+      timestamp: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error('apiUploadArtwork エラー:', err);
+    return {
+      success: false,
+      error: err.message,
+      code: err.code || 'ARTWORK_UPLOAD_ERROR',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * 【RPC】Google Drive画像インポート・複製API
+ * @param {Object} payload 
+ * @returns {ApiResponse}
+ */
+function apiResolveDriveArtwork(payload) {
+  try {
+    const data = getMusicService().resolveDriveArtwork(payload);
+    return {
+      success: true,
+      data: data,
+      timestamp: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error('apiResolveDriveArtwork エラー:', err);
+    return {
+      success: false,
+      error: err.message,
+      code: err.code || 'DRIVE_RESOLVE_ERROR',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     doGet,
@@ -248,6 +296,8 @@ if (typeof module !== 'undefined' && module.exports) {
     apiLookupMusicBrainzRelease,
     apiSaveAlbumBatch,
     apiSaveTrackSingle,
-    apiUpdateAlbumBatch
+    apiUpdateAlbumBatch,
+    apiUploadArtwork,
+    apiResolveDriveArtwork
   };
 }

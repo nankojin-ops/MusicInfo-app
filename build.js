@@ -34,7 +34,8 @@ const htmlIncludes = [
   'ItunesModal',
   'ManualModal',
   'EditAlbumModal',
-  'ImageModal'
+  'ImageModal',
+  'DriveArtworkModal'
 ];
 
 htmlIncludes.forEach(name => {

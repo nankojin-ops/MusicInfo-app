@@ -263,7 +263,11 @@ const driveSanitizeTests = [
   { input: '///', desc: 'スラッシュのみ' },
   { input: '   ', desc: '空白のみ' },
   { input: 'A'.repeat(500), desc: '500文字の超長大アルバム名' },
-  { input: 'Album\0Name\x01\x1F', desc: 'ヌル文字およびASCII制御文字' }
+  { input: 'Album\0Name\x01\x1F', desc: 'ヌル文字およびASCII制御文字' },
+  { input: '.', desc: '単一ドット "." (BUG-004)' },
+  { input: '..', desc: '二重ドット ".." (BUG-004)' },
+  { input: '...', desc: '三重ドット "..." (BUG-004)' },
+  { input: 'A'.repeat(59) + '😀', desc: '59文字+絵文字孤立サロゲート切断 (BUG-003)' }
 ];
 
 driveSanitizeTests.forEach((tc) => {
@@ -291,6 +295,18 @@ driveSanitizeTests.forEach((tc) => {
   if (sanitized.includes('\0')) {
     safe = false;
     reason = `ヌル文字 (\\0) がファイル名に残留: ${sanitized}`;
+  }
+
+  // 孤立サロゲート検査 (BUG-003)
+  if (/[\uD800-\uDBFF]$/.test(sanitized)) {
+    safe = false;
+    reason = `末尾に孤立上位サロゲートが残存: ${sanitized}`;
+  }
+
+  // 単一ドットまたはドットのみ検査 (BUG-004)
+  if (/^\.+$/.test(sanitized)) {
+    safe = false;
+    reason = `サニタイズ結果がドットのみで構成されている: ${sanitized}`;
   }
 
   if (safe) {
@@ -1270,6 +1286,165 @@ const escapesMbMeta =
   appContent.includes('Utils.escapeHtml(String(item.extra.label))') &&
   appContent.includes('Utils.escapeHtml(String(item.extra.disambiguation))');
 recordResult('ScriptsApp: MusicBrainz 固有メタ情報 (format/country/label/disambiguation) が全て escapeHtml されている', escapesMbMeta, '未エスケープの MB メタ情報出力が存在する', 'HIGH');
+
+// -----------------------------------------------------------------------------
+// [TEST SUITE 7] 画像アップロード・Google Drive連携およびファイル命名規則統一 レッドチーム破壊的テスト
+// -----------------------------------------------------------------------------
+console.log('\n>>> [7] 画像アップロード & Google Drive連携 レッドチーム破壊的テスト');
+
+// 7.1 MusicService.uploadArtwork ペイロード破壊・極限値・型汚染攻撃
+console.log('\n>>> [7.1] uploadArtwork ペイロード破壊・型汚染・悪意ある入力攻撃');
+const rtDriveService = new DriveService(mockConfig);
+const rtMusicService = new MusicService(mockConfig, mockSheetService, rtDriveService, mockItunesService);
+
+const invalidUploadPayloads = [
+  { payload: null, desc: 'uploadArtwork(payload: null)' },
+  { payload: undefined, desc: 'uploadArtwork(payload: undefined)' },
+  { payload: 'string', desc: 'uploadArtwork(payload: 文字列型)' },
+  { payload: 12345, desc: 'uploadArtwork(payload: 数値型)' },
+  { payload: [], desc: 'uploadArtwork(payload: 配列型)' },
+  { payload: {}, desc: 'uploadArtwork(payload: 空オブジェクト)' },
+  { payload: { base64Data: null }, desc: 'uploadArtwork(base64Data: null)' },
+  { payload: { base64Data: '' }, desc: 'uploadArtwork(base64Data: 空文字)' },
+  { payload: { base64Data: 12345 }, desc: 'uploadArtwork(base64Data: 数値型)' },
+  { payload: { base64Data: 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==', mimeType: 'text/html' }, desc: 'uploadArtwork(XSSスクリプト HTML MIME)' },
+  { payload: { base64Data: 'data:application/javascript;base64,YWxlcnQoMSk=', mimeType: 'application/javascript' }, desc: 'uploadArtwork(JSスクリプト MIME)' },
+  { payload: { base64Data: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', mimeType: 'image/svg+xml' }, desc: 'uploadArtwork(SVG スクリプト混入リスク MIME)' },
+  { payload: { base64Data: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', mimeType: 'image/gif' }, desc: 'uploadArtwork(非許可形式 GIF)' },
+  { payload: { base64Data: 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==', mimeType: 'image/jpeg' }, desc: 'uploadArtwork(MIME偽装バイパス: DataURLヘッダtext/html vs 引数image/jpeg) (BUG-001)' },
+  { payload: { base64Data: 'data:application/pdf;base64,JVBERi0xLjQ=', mimeType: 'image/png' }, desc: 'uploadArtwork(MIME偽装バイパス: DataURLヘッダapplication/pdf vs 引数image/png) (BUG-001)' },
+  { payload: { base64Data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', mimeType: 'image/jpeg' }, desc: 'uploadArtwork(MIME不一致攻撃: DataURLヘッダimage/png vs 引数image/jpeg) (BUG-001)' },
+  { payload: { base64Data: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBD', mimeType: 'image/gif' }, desc: 'uploadArtwork(非許可引数MIME攻撃: DataURLヘッダimage/jpeg vs 引数image/gif) (BUG-001)' }
+];
+
+invalidUploadPayloads.forEach(tc => {
+  try {
+    rtMusicService.uploadArtwork(tc.payload);
+    recordResult(tc.desc, false, '不正ペイロードが拒絶されず受け入れられた', 'CRITICAL');
+  } catch (err) {
+    recordResult(tc.desc, err.code === 'VALIDATION_FAILED', `予期せぬエラーコード: ${err.code || err.message}`);
+  }
+});
+
+// 7.2 MusicService.resolveDriveArtwork パストラバーサル・ヌルバイト・極限値攻撃
+console.log('\n>>> [7.2] resolveDriveArtwork パストラバーサル・ヌルバイト・極限値攻撃');
+const invalidDrivePayloads = [
+  { payload: null, desc: 'resolveDriveArtwork(payload: null)' },
+  { payload: undefined, desc: 'resolveDriveArtwork(payload: undefined)' },
+  { payload: 'string', desc: 'resolveDriveArtwork(payload: 文字列型)' },
+  { payload: 12345, desc: 'resolveDriveArtwork(payload: 数値型)' },
+  { payload: [], desc: 'resolveDriveArtwork(payload: 配列型)' },
+  { payload: {}, desc: 'resolveDriveArtwork(payload: 空オブジェクト)' },
+  { payload: { driveUrlOrId: null }, desc: 'resolveDriveArtwork(driveUrlOrId: null)' },
+  { payload: { driveUrlOrId: '' }, desc: 'resolveDriveArtwork(driveUrlOrId: 空文字)' },
+  { payload: { driveUrlOrId: '   ' }, desc: 'resolveDriveArtwork(driveUrlOrId: 空白のみ)' },
+  { payload: { driveUrlOrId: 12345 }, desc: 'resolveDriveArtwork(driveUrlOrId: 数値型)' },
+  { payload: { driveUrlOrId: '../../../../etc/passwd' }, desc: 'resolveDriveArtwork(パストラバーサル ../../)' },
+  { payload: { driveUrlOrId: 'file_id\0evil' }, desc: 'resolveDriveArtwork(ヌルバイト注入)' },
+  { payload: { driveUrlOrId: '<script>alert("xss")</script>' }, desc: 'resolveDriveArtwork(XSS文字列注入)' },
+  { payload: { driveUrlOrId: 'A'.repeat(10000) }, desc: 'resolveDriveArtwork(10,000文字超長大文字列)' }
+];
+
+invalidDrivePayloads.forEach(tc => {
+  try {
+    rtMusicService.resolveDriveArtwork(tc.payload);
+    recordResult(tc.desc, false, '不正Drive指定が拒絶されず受け入れられた', 'HIGH');
+  } catch (err) {
+    recordResult(tc.desc, true);
+  }
+});
+
+// 7.3 スプレッドシート数式インジェクション（CSV Injection）対策検証
+console.log('\n>>> [7.3] スプレッドシート数式インジェクション (CSV Injection) 防御検証');
+const formulaInjections = [
+  '=cmd|\' /C calc\'!A0',
+  '+SUM(1,2)',
+  '-2+3',
+  '@SUM(B1:B10)'
+];
+
+formulaInjections.forEach(fi => {
+  const sanitizedFileName = rtDriveService.generateArtworkFileName(fi, 'jpg');
+  // ファイル名に = や @ や | が残存せずアンダースコアに置換されているか
+  const isFileNameSafe = !sanitizedFileName.includes('=') && !sanitizedFileName.includes('@') && !sanitizedFileName.includes('|');
+  recordResult(`ファイル名サニタイズ数式インジェクション防御 (${fi.substring(0, 10)})`, isFileNameSafe, `ファイル名に危険文字が残存: ${sanitizedFileName}`, 'HIGH');
+
+  const escaped = rtMusicService.escapeFormula_(fi);
+  const isEscaped = escaped.startsWith("'");
+  recordResult(`escapeFormula_ 数式無害化 (${fi.substring(0, 10)})`, isEscaped, `先頭シングルクォートが付与されなかった: ${escaped}`, 'HIGH');
+});
+
+// 7.4 フロントエンド UI / アクセシビリティ / WCAG 44px タッチターゲット & Enter誤送信抑止
+console.log('\n>>> [7.4] フロントエンド UI / アクセシビリティ / 44px タッチターゲット検証');
+const driveModalContent = fs.readFileSync(path.join(__dirname, '../src/DriveArtworkModal.html'), 'utf8');
+
+// モーダルフォーム Enterキー誤送信抑止検証
+recordResult(
+  'DriveArtworkModal: Enterキー誤送信／不正リロード抑止 (onsubmit="event.preventDefault();")',
+  driveModalContent.includes('onsubmit="event.preventDefault();"'),
+  'form 要素に onsubmit="event.preventDefault();" が未設定',
+  'HIGH'
+);
+
+// 新規追加ボタン 44px タッチターゲット検証 (WCAG 2.5.5 / 2.5.8)
+const touchTargetButtons = [
+  { file: 'DriveArtworkModal', content: driveModalContent, id: 'btn-close-drive-artwork', desc: '閉じるボタン' },
+  { file: 'DriveArtworkModal', content: driveModalContent, id: 'btn-cancel-drive-artwork', desc: 'キャンセルボタン' },
+  { file: 'DriveArtworkModal', content: driveModalContent, id: 'btn-submit-drive-artwork', desc: '適用するボタン' },
+  { file: 'EditAlbumModal', content: editAlbumModalContent, id: 'btn-edit-album-upload', desc: 'ローカルから選択ボタン' },
+  { file: 'EditAlbumModal', content: editAlbumModalContent, id: 'btn-edit-album-drive', desc: 'Driveから追加ボタン' },
+  { file: 'ManualModal', content: manualModalContent, id: 'btn-manual-upload', desc: 'ローカルから選択ボタン' },
+  { file: 'ManualModal', content: manualModalContent, id: 'btn-manual-drive', desc: 'Driveから追加ボタン' }
+];
+
+touchTargetButtons.forEach(btn => {
+  const regex = new RegExp(`id=["']${btn.id}["'][^>]*class=["']([^"']*)["']`, 'i');
+  const match = btn.content.match(regex);
+  const has44px = match && match[1] && match[1].includes('min-h-[44px]');
+  recordResult(
+    `${btn.file}: ${btn.desc} (${btn.id}) 44pxタッチターゲット確保`,
+    Boolean(has44px),
+    `${btn.id} に min-h-[44px] クラスが指定されていない`,
+    'MEDIUM'
+  );
+});
+
+// BUG-002: ローカル画像アップロード実行中の親フォーム「保存」「登録」ボタン非活性化漏れによる競合状態 (Race Condition) 防止検証
+const scriptsAppRaw = fs.readFileSync(path.join(__dirname, '../src/ScriptsApp.html'), 'utf8');
+const raceConditionButtons = [
+  { id: 'btn-submit-edit-album', desc: 'アルバム編集モーダル 保存ボタン' },
+  { id: 'btn-mobile-submit-edit-album', desc: 'アルバム編集モーダル モバイル用保存ボタン' },
+  { id: 'btn-submit-manual-track', desc: '手動登録モーダル 登録ボタン' },
+  { id: 'btn-edit-album-drive', desc: 'アルバム編集モーダル Drive追加ボタン' },
+  { id: 'btn-manual-drive', desc: '手動登録モーダル Drive追加ボタン' }
+];
+
+raceConditionButtons.forEach(btn => {
+  const isIncludedInHandler = scriptsAppRaw.includes(`'${btn.id}'`);
+  recordResult(
+    `Race Condition防止: handleImageUpload で ${btn.desc} (${btn.id}) を非活性化対象に含む`,
+    isIncludedInHandler,
+    `ScriptsApp.html の handleImageUpload に '${btn.id}' が含まれていない`,
+    'MEDIUM'
+  );
+});
+
+const hasDisabledTrue = scriptsAppRaw.includes('relatedBtns.forEach(btn => { btn.disabled = true; });');
+const hasFinallyReset = scriptsAppRaw.includes('relatedBtns.forEach(btn => { btn.disabled = false; });');
+
+recordResult(
+  'Race Condition防止: handleImageUpload 開始時に親フォームボタン群が disabled = true に設定される',
+  hasDisabledTrue,
+  'relatedBtns disabled = true 処理が存在しない',
+  'MEDIUM'
+);
+
+recordResult(
+  'Race Condition防止: handleImageUpload の finally ブロックで親フォームボタン群が disabled = false に復帰される',
+  hasFinallyReset,
+  'finally ブロックでの relatedBtns disabled = false 復帰処理が存在しない',
+  'MEDIUM'
+);
 
 
 // -----------------------------------------------------------------------------

@@ -688,6 +688,46 @@ class MusicService {
   }
 
   /**
+   * ローカル画像アップロードの業務受付・バリデーション・保存オーケストレーション
+   * @param {Object} payload 
+   * @returns {{ fileId: string, publicUrl: string, fileName: string }}
+   */
+  uploadArtwork(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      const err = new Error('リクエストペイロードが不正です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const { base64Data, mimeType, albumName } = payload;
+    if (!base64Data || typeof base64Data !== 'string') {
+      const err = new Error('画像データが指定されていません。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    return this.driveService.saveUploadedArtwork(base64Data, mimeType, albumName);
+  }
+
+  /**
+   * Google Drive画像のインポート業務受付・バリデーション・複製オーケストレーション
+   * @param {Object} payload 
+   * @returns {{ fileId: string, publicUrl: string, fileName: string }}
+   */
+  resolveDriveArtwork(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      const err = new Error('リクエストペイロードが不正です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const { driveUrlOrId, albumName, copyToAppFolder } = payload;
+    if (!driveUrlOrId || typeof driveUrlOrId !== 'string') {
+      const err = new Error('Google DriveのURLまたはファイルIDを指定してください。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    return this.driveService.importArtworkFromDrive(driveUrlOrId, albumName, copyToAppFolder !== false);
+  }
+
+  /**
    * スプレッドシート式インジェクション（=, @, +, - で始まる文字列）を無害化
    * @param {any} val 
    * @returns {string}

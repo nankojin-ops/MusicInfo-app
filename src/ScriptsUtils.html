@@ -1,195 +1,328 @@
-<script>
-/**
- * ユーティリティヘルパークラス
- */
-class Utils {
-  /**
-   * HTML特殊文字のエスケープ処理 (XSS対策)
-   * @param {string} str 
-   * @returns {string}
-   */
-  static escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    const map = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#039;'
-    };
-    return String(str).replace(/[&<>"']/g, (m) => map[m]);
-  }
+<script>  
+/**  
+ * ユーティリティヘルパークラス  
+ */  
+class Utils {  
+  /**  
+   * HTML特殊文字のエスケープ処理 (XSS対策)  
+   * @param {string} str   
+   * @returns {string}  
+   */  
+  static escapeHtml(str) {  
+    if (str === null || str === undefined) return '';  
+    const map = {  
+      '&': '&amp;',  
+      '<': '&lt;',  
+      '>': '&gt;',  
+      '"': '&quot;',  
+      "'": '&#039;'  
+    };  
+    return String(str).replace(/[&<>"']/g, (m) => map[m]);  
+  }  
 
-  /**
-   * ISO日付文字列を YYYY-MM-DD に整形
-   * @param {string|Date} dateVal 
-   * @returns {string}
-   */
-  static formatDate(dateVal) {
-    if (!dateVal) return '';
-    if (dateVal instanceof Date || Object.prototype.toString.call(dateVal) === '[object Date]') {
-      const y = dateVal.getFullYear();
-      const m = String(dateVal.getMonth() + 1).padStart(2, '0');
-      const d = String(dateVal.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-    return String(dateVal).substring(0, 10);
-  }
+  /**  
+   * 検索用文字列の正規化（全角半角統一・カタカナ統一・大文字小文字統一）  
+   * @param {string} str   
+   * @returns {string}  
+   */  
+  static normalizeSearchText(str) {  
+    if (str === null || str === undefined) return '';  
+    // 1. Unicode NFKC (全角英数・記号・半角カナを正規化)  
+    let s = String(str).normalize('NFKC').toLowerCase().trim();  
+    if (!s) return '';  
 
-  /**
-   * 関数デバウンス
-   * @param {Function} func 
-   * @param {number} wait 
-   * @returns {Function}
-   */
-  static debounce(func, wait = 250) {
-    let timeout;
-    return function(...args) {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-  }
+    // 2. ひらがな -> 全角カタカナ 変換 (文字コードオフセット 0x60)  
+    s = s.replace(/[\u3041-\u3096]/g, (match) => {  
+      return String.fromCharCode(match.charCodeAt(0) + 0x60);  
+    });  
 
-  /**
-   * トースト通知を表示
-   * @param {string} message 
-   * @param {'success'|'error'|'info'|'warning'} type 
-   * @param {number} duration 
-   */
-  static showToast(message, type = 'info', duration = 3000) {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
+    // 3. 連続する空白を1個の半角スペースに統一  
+    return s.replace(/\s+/g, ' ');  
+  }  
 
-    const toast = document.createElement('div');
-    const colorMap = {
-      success: 'bg-emerald-600 border-emerald-500 text-white',
-      error: 'bg-rose-600 border-rose-500 text-white',
-      warning: 'bg-amber-600 border-amber-500 text-white',
-      info: 'bg-indigo-600 border-indigo-500 text-white'
-    };
+  /**  
+   * 安全な検索語ハイライト生成（エスケープ済みHTMLに対して適用）  
+   * @param {string} rawText 表示対象の元のテキスト  
+   * @param {Array<string>} queryTokens 検索トークン配列（正規化済みカタカナ/英小文字）  
+   * @returns {string} 安全なハイライト付きHTML文字列  
+   */  
+  static highlightMatch(rawText, queryTokens) {  
+    if (!rawText) return '';  
+    const safeText = Utils.escapeHtml(rawText);  
+    if (!Array.isArray(queryTokens) || queryTokens.length === 0) {  
+      return safeText;  
+    }  
 
-    const colorClass = colorMap[type] || colorMap.info;
-    toast.className = `px-4 py-2.5 rounded-lg shadow-xl text-xs md:text-sm font-medium border flex items-center gap-2 animate-fadeIn pointer-events-auto transition-all ${colorClass}`;
-    toast.innerHTML = `<span>${this.escapeHtml(message)}</span>`;
+    // 有効なトークン（空文字除外）のみ抽出  
+    const validTokens = queryTokens.filter(t => t && t.trim().length > 0);  
+    if (validTokens.length === 0) return safeText;  
 
-    container.appendChild(toast);
+    // 各トークンについて、元のテキスト中の一致位置を大文字小文字・カタカナひらがな問わず検出  
+    // プレーンテキスト上でのインデックスを探索  
+    const normalizedRaw = Utils.normalizeSearchText(rawText);  
+    const ranges = [];  
 
-    setTimeout(() => {
-      toast.classList.add('opacity-0', 'translate-y-2');
-      setTimeout(() => toast.remove(), 200);
-    }, duration);
-  }
+    validTokens.forEach(token => {  
+      let startIdx = 0;  
+      while ((startIdx = normalizedRaw.indexOf(token, startIdx)) !== -1) {  
+        ranges.push({ start: startIdx, end: startIdx + token.length });  
+        startIdx += token.length;  
+      }  
+    });  
 
-  /**
-   * グローバルローディングの表示/非表示
-   * @param {boolean} show 
-   * @param {string} text 
-   */
-  static toggleGlobalLoading(show, text = '処理中...') {
-    const el = document.getElementById('global-loading');
-    const txtEl = document.getElementById('global-loading-text');
-    if (!el) return;
+    if (ranges.length === 0) return safeText;  
 
-    if (show) {
-      if (txtEl) txtEl.textContent = text;
-      el.classList.remove('hidden');
-    } else {
-      el.classList.add('hidden');
-    }
-  }
+    // 範囲をマージ  
+    ranges.sort((a, b) => a.start - b.start);  
+    const merged = [];  
+    let current = { ...ranges[0] };  
 
-  /**
-   * Google Driveの各種URLまたは文字列からファイルIDを抽出
-   * @param {string} url 
-   * @returns {string|null}
-   */
-  static extractDriveFileId(url) {
-    if (!url || typeof url !== 'string') return null;
-    const str = url.trim();
-    if (!str) return null;
+    for (let i = 1; i < ranges.length; i++) {  
+      const next = ranges[i];  
+      if (next.start <= current.end) {  
+        current.end = Math.max(current.end, next.end);  
+      } else {  
+        merged.push(current);  
+        current = { ...next };  
+      }  
+    }  
+    merged.push(current);  
 
-    // 1. /file/d/{id}
-    const fileDMatch = str.match(/\/file\/d\/([a-zA-Z0-9_-]+)/i);
-    if (fileDMatch) return fileDMatch[1];
+    // 文字列を分割して再構築  
+    let result = '';  
+    let lastIndex = 0;  
+    for (const r of merged) {  
+      if (r.start > lastIndex) {  
+        result += Utils.escapeHtml(rawText.substring(lastIndex, r.start));  
+      }  
+      result += `<mark class="bg-indigo-500/30 text-indigo-200 rounded px-0.5 font-bold">${Utils.escapeHtml(rawText.substring(r.start, r.end))}</mark>`;  
+      lastIndex = r.end;  
+    }  
+    if (lastIndex < rawText.length) {  
+      result += Utils.escapeHtml(rawText.substring(lastIndex));  
+    }  
 
-    // 2. id={id} クエリパラメータ (uc?id=, open?id=, thumbnail?id= 等)
-    const idParamMatch = str.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
-    if (idParamMatch) return idParamMatch[1];
+    return result;  
+  }  
 
-    // 3. googleusercontent.com/d/{id}
-    const dMatch = str.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/i);
-    if (dMatch) return dMatch[1];
+  /**  
+   * ISO日付文字列を YYYY-MM-DD に整形  
+   * @param {string|Date} dateVal   
+   * @returns {string}  
+   */  
+  static formatDate(dateVal) {  
+    if (!dateVal) return '';  
+    if (dateVal instanceof Date || Object.prototype.toString.call(dateVal) === '[object Date]') {  
+      const y = dateVal.getFullYear();  
+      const m = String(dateVal.getMonth() + 1).padStart(2, '0');  
+      const d = String(dateVal.getDate()).padStart(2, '0');  
+      return `${y}-${m}-${d}`;  
+    }  
+    return String(dateVal).substring(0, 10);  
+  }  
 
-    // 4. 純粋なファイルID (25文字以上の英数字記号)
-    if (/^[a-zA-Z0-9_-]{25,}$/.test(str)) {
-      return str;
-    }
+  /**  
+   * 関数デバウンス  
+   * @param {Function} func   
+   * @param {number} wait   
+   * @returns {Function}  
+   */  
+  static debounce(func, wait = 250) {  
+    let timeout;  
+    return function(...args) {  
+      clearTimeout(timeout);  
+      timeout = setTimeout(() => func.apply(this, args), wait);  
+    };  
+  }  
 
-    return null;
-  }
+  /**  
+   * トースト通知を表示  
+   * @param {string} message   
+   * @param {'success'|'error'|'info'|'warning'} type   
+   * @param {number} duration   
+   */  
+  static showToast(message, type = 'info', duration = 3000) {  
+    const container = document.getElementById('toast-container');  
+    if (!container) return;  
 
-  /**
-   * Google Drive等の画像URLをWeb上で確実に表示可能なURLに解決
-   * 優先URL: https://lh3.googleusercontent.com/d/{fileId}
-   * @param {string} url 
-   * @param {number} [size=800] 
-   * @returns {string}
-   */
-  static resolveArtworkUrl(url, size = 800) {
-    if (!url || typeof url !== 'string') return '';
-    const trimmed = url.trim();
-    if (!trimmed) return '';
+    const toast = document.createElement('div');  
+    const colorMap = {  
+      success: 'bg-emerald-600 border-emerald-500 text-white',  
+      error: 'bg-rose-600 border-rose-500 text-white',  
+      warning: 'bg-amber-600 border-amber-500 text-white',  
+      info: 'bg-indigo-600 border-indigo-500 text-white'  
+    };  
 
-    const driveId = this.extractDriveFileId(trimmed);
-    if (driveId) {
-      return 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId);
-    }
+    const colorClass = colorMap[type] || colorMap.info;  
+    toast.className = `px-4 py-2.5 rounded-lg shadow-xl text-xs md:text-sm font-medium border flex items-center gap-2 animate-fadeIn pointer-events-auto transition-all ${colorClass}`;  
+    toast.innerHTML = `<span>${this.escapeHtml(message)}</span>`;  
 
-    return trimmed;
-  }
+    container.appendChild(toast);  
 
-  /**
-   * デフォルトのSVGジャケットプレースホルダー (Data URI)
-   * @returns {string}
-   */
-  static getDefaultArtworkSvg() {
-    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect width="24" height="24" fill="#1e293b"/><circle cx="12" cy="12" r="4"/></svg>'
-    );
-  }
+    setTimeout(() => {  
+      toast.classList.add('opacity-0', 'translate-y-2');  
+      setTimeout(() => toast.remove(), 200);  
+    }, duration);  
+  }  
 
-  /**
-   * 画像読み込み失敗時の多重フォールバック処理 (3段階保証)
-   * Step 0 (初発): data-error-step="1" に更新し、予備ホスト (drive.google.com/thumbnail) へ切り替え
-   * Step 1 (予備失敗) または Drive以外の画像エラー: data-error-step="2" に更新し、getDefaultArtworkSvg() をセット。ループ防止のため onerror 解除
-   * @param {HTMLImageElement} imgEl 
-   * @param {string} [originalUrl] 
-   */
-  static handleImageError(imgEl, originalUrl) {
-    if (!imgEl) return;
-    const rawUrl = originalUrl || imgEl.getAttribute('data-artwork') || '';
-    const step = parseInt(imgEl.getAttribute('data-error-step') || '0', 10);
-    const driveId = this.extractDriveFileId(rawUrl);
+  /**  
+   * グローバルローディングの表示/非表示  
+   * @param {boolean} show   
+   * @param {string} text   
+   */  
+  static toggleGlobalLoading(show, text = '処理中...') {  
+    const el = document.getElementById('global-loading');  
+    const txtEl = document.getElementById('global-loading-text');  
+    if (!el) return;  
 
-    if (driveId && step === 0) {
-      imgEl.setAttribute('data-error-step', '1');
-      imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w400';
-      return;
-    }
+    if (show) {  
+      if (txtEl) txtEl.textContent = text;  
+      el.classList.remove('hidden');  
+    } else {  
+      el.classList.add('hidden');  
+    }  
+  }  
 
-    // 最終フォールバック (ループ防止のため属性およびハンドラ解除)
-    imgEl.setAttribute('data-error-step', '2');
-    imgEl.removeAttribute('data-artwork');
-    imgEl.onerror = null;
-    imgEl.src = this.getDefaultArtworkSvg();
-  }
-}
+  /**  
+   * Google Driveの各種URLまたは文字列からファイルIDを抽出  
+   * @param {string} url   
+   * @returns {string|null}  
+   */  
+  static extractDriveFileId(url) {  
+    if (!url || typeof url !== 'string') return null;  
+    const str = url.trim();  
+    if (!str) return null;  
 
-if (typeof window !== 'undefined') {
-  window.Utils = Utils;
-}
+    // 1. /file/d/{id}  
+    const fileDMatch = str.match(/\/file\/d\/([a-zA-Z0-9_-]+)/i);  
+    if (fileDMatch) return fileDMatch[1];  
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = Utils;
-}
+    // 2. id={id} クエリパラメータ (uc?id=, open?id=, thumbnail?id= 等)  
+    const idParamMatch = str.match(/[?&]id=([a-zA-Z0-9_-]+)/i);  
+    if (idParamMatch) return idParamMatch[1];  
+
+    // 3. googleusercontent.com/d/{id}  
+    const dMatch = str.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/i);  
+    if (dMatch) return dMatch[1];  
+
+    // 4. 純粋なファイルID (25文字以上の英数字記号)  
+    if (/^[a-zA-Z0-9_-]{25,}$/.test(str)) {  
+      return str;  
+    }  
+
+    return null;  
+  }  
+
+  /**  
+   * Google Drive等の画像URLをWeb上で確実に表示可能なURLに解決  
+   * 優先URL: https://lh3.googleusercontent.com/d/{fileId}  
+   * @param {string} url   
+   * @param {number} [size=800]   
+   * @returns {string}  
+   */  
+  static resolveArtworkUrl(url, size = 800) {  
+    if (!url || typeof url !== 'string') return '';  
+    const trimmed = url.trim();  
+    if (!trimmed) return '';  
+
+    const driveId = this.extractDriveFileId(trimmed);  
+    if (driveId) {  
+      return 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId);  
+    }  
+
+    return trimmed;  
+  }  
+
+  /**  
+   * デフォルトのSVGジャケットプレースホルダー (Data URI)  
+   * @returns {string}  
+   */  
+  static getDefaultArtworkSvg() {  
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(  
+      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><rect width="24" height="24" fill="#1e293b"/><circle cx="12" cy="12" r="4"/></svg>'  
+    );  
+  }  
+
+  /**  
+   * 画像読み込み失敗時の多重フォールバック処理 (3段階保証)  
+   * Step 0 (初発): data-error-step="1" に更新し、予備ホスト (drive.google.com/thumbnail) へ切り替え  
+   * Step 1 (予備失敗) または Drive以外の画像エラー: data-error-step="2" に更新し、getDefaultArtworkSvg() をセット。ループ防止のため onerror 解除  
+   * @param {HTMLImageElement} imgEl   
+   * @param {string} [originalUrl]   
+   */  
+  static handleImageError(imgEl, originalUrl) {  
+    if (!imgEl) return;  
+    const rawUrl = originalUrl || imgEl.getAttribute('data-artwork') || '';  
+    const step = parseInt(imgEl.getAttribute('data-error-step') || '0', 10);  
+    const driveId = this.extractDriveFileId(rawUrl);  
+
+    if (driveId && step === 0) {  
+      imgEl.setAttribute('data-error-step', '1');  
+      imgEl.src = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w400';  
+      return;  
+    }  
+
+    // 最終フォールバック (ループ防止のため属性およびハンドラ解除)  
+    imgEl.setAttribute('data-error-step', '2');  
+    imgEl.removeAttribute('data-artwork');  
+    imgEl.onerror = null;  
+    imgEl.src = this.getDefaultArtworkSvg();  
+  }  
+
+  /**  
+   * アップロード対象画像ファイルのクライアント側バリデーション  
+   * @param {File} file   
+   * @returns {{ valid: boolean, error?: string, mimeType?: string, extension?: string }}  
+   */  
+  static validateImageFile(file) {  
+    if (!file) {  
+      return { valid: false, error: 'ファイルが選択されていません。' };  
+    }  
+    const maxSize = 5 * 1024 * 1024; // 5MB  
+    if (file.size > maxSize) {  
+      return { valid: false, error: '画像サイズは5MB以内にしてください。' };  
+    }  
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];  
+    let mime = (file.type || '').toLowerCase();  
+    // 拡張子からのフォールバック判定  
+    const name = file.name || '';  
+    const extMatch = name.match(/\.([a-zA-Z0-9]+)$/);  
+    const ext = extMatch ? extMatch[1].toLowerCase() : '';  
+    if (!mime) {  
+      if (ext === 'jpg' || ext === 'jpeg') mime = 'image/jpeg';  
+      else if (ext === 'png') mime = 'image/png';  
+      else if (ext === 'webp') mime = 'image/webp';  
+    }  
+    if (!allowedMimes.includes(mime)) {  
+      return { valid: false, error: '対応形式はJPEG、PNG、WebPのみです。' };  
+    }  
+    const extMapping = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };  
+    return { valid: true, mimeType: mime, extension: extMapping[mime] || 'jpg' };  
+  }  
+
+  /**  
+   * File オブジェクトを Base64 DataURL 文字列として読み込む  
+   * @param {File} file   
+   * @returns {Promise<string>}  
+   */  
+  static readFileAsBase64(file) {  
+    return new Promise((resolve, reject) => {  
+      if (!file) {  
+        return reject(new Error('ファイルが指定されていません。'));  
+      }  
+      const reader = new FileReader();  
+      reader.onload = () => resolve(reader.result);  
+      reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました。'));  
+      reader.readAsDataURL(file);  
+    });  
+  }  
+}  
+
+if (typeof window !== 'undefined') {  
+  window.Utils = Utils;  
+}  
+
+if (typeof module !== 'undefined' && module.exports) {  
+  module.exports = Utils;  
+}  
 </script>
