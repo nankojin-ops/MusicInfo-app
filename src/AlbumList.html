@@ -16,9 +16,38 @@
       <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Artist:</span>
       <h2 id="albums-header-artist-name" class="text-sm font-bold text-slate-200 truncate">未選択</h2>
     </div>
-    <span id="album-count-badge" class="px-2 py-0.5 bg-slate-800 text-slate-400 text-xs rounded-full font-mono flex-shrink-0">
-      0作品
-    </span>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <span id="album-count-badge" class="px-2 py-0.5 bg-slate-800 text-slate-400 text-xs rounded-full font-mono">
+        0作品
+      </span>
+      <button id="btn-toggle-album-select" type="button" aria-pressed="false" aria-label="アルバム複数選択モード切替" title="複数選択モードに切り替え" class="min-h-[44px] min-w-[44px] px-2.5 py-1 text-xs font-medium rounded-lg text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition flex items-center justify-center gap-1 border border-slate-700">
+        <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+        </svg>
+        <span id="btn-toggle-album-select-text">選択</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 選択モード用ツールバー (通常時は hidden) -->
+  <div id="album-selection-toolbar" class="hidden px-3 py-2 border-b border-indigo-900/50 bg-indigo-950/30 flex items-center justify-between gap-2 flex-shrink-0 transition-all">
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <button id="btn-select-all-albums" type="button" class="min-h-[44px] min-w-[44px] px-2.5 py-1 text-xs font-medium rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition flex items-center justify-center">
+        全選択
+      </button>
+      <button id="btn-deselect-all-albums" type="button" class="min-h-[44px] min-w-[44px] px-2.5 py-1 text-xs font-medium rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition flex items-center justify-center">
+        全解除
+      </button>
+      <span id="selected-album-count-badge" class="px-2 py-0.5 bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 text-xs rounded-full font-mono flex items-center">
+        0件選択中
+      </span>
+    </div>
+    <button id="btn-delete-selected-albums" type="button" disabled class="min-h-[44px] min-w-[44px] px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/50 text-rose-300 cursor-not-allowed hover:bg-rose-600 hover:text-white active:scale-95 transition flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+      </svg>
+      <span>削除</span>
+    </button>
   </div>
 
   <!-- アルバムカードグリッドスクロールエリア -->

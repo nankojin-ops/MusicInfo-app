@@ -122,6 +122,15 @@ class ApiClient {
   resolveDriveArtwork(payload) {
     return this.callGAS('apiResolveDriveArtwork', payload);
   }
+
+  /**
+   * アルバム一括削除 API の呼び出し
+   * @param {Array<{ albumArtist: string, albumName: string }>} albums
+   * @returns {Promise<DeleteAlbumsResult>}
+   */
+  deleteAlbumsBatch(albums) {
+    return this.callGAS('apiDeleteAlbumsBatch', { albums: albums });
+  }
 }
 
 if (typeof window !== 'undefined') {

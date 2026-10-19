@@ -1446,6 +1446,125 @@ recordResult(
   'MEDIUM'
 );
 
+// =============================================================================
+// [8] アルバム削除機能 Red Team 攻撃耐性・セキュリティ・アクセシビリティ検証
+// =============================================================================
+console.log('\n>>> [8.1] deleteAlbums ファジング & 破壊的ペイロード攻撃耐性検証');
+const destructiveDeletePayloads = [
+  { payload: null, desc: 'deleteAlbums(payload: null)' },
+  { payload: undefined, desc: 'deleteAlbums(payload: undefined)' },
+  { payload: 'string', desc: 'deleteAlbums(payload: 文字列型)' },
+  { payload: 12345, desc: 'deleteAlbums(payload: 数値型)' },
+  { payload: [], desc: 'deleteAlbums(payload: 配列型)' },
+  { payload: {}, desc: 'deleteAlbums(payload: 空オブジェクト)' },
+  { payload: { albums: null }, desc: 'deleteAlbums(albums: null)' },
+  { payload: { albums: [] }, desc: 'deleteAlbums(albums: 空配列)' },
+  { payload: { albums: ['invalid-item'] }, desc: 'deleteAlbums(albums: 文字列要素)' },
+  { payload: { albums: [{}] }, desc: 'deleteAlbums(albums: 空オブジェクト要素)' },
+  { payload: { albums: [{ albumArtist: '', albumName: 'Album' }] }, desc: 'deleteAlbums(albumArtist 空文字)' },
+  { payload: { albums: [{ albumArtist: 'Artist', albumName: '' }] }, desc: 'deleteAlbums(albumName 空文字)' },
+  { payload: { albums: [{ albumArtist: '   ', albumName: 'Album' }] }, desc: 'deleteAlbums(albumArtist 空白のみ)' },
+  { payload: { albums: [{ albumArtist: 'A'.repeat(256), albumName: 'Album' }] }, desc: 'deleteAlbums(albumArtist 255文字超過)' },
+  { payload: { albums: [{ albumArtist: 'Artist', albumName: 'B'.repeat(256) }] }, desc: 'deleteAlbums(albumName 255文字超過)' }
+];
+
+destructiveDeletePayloads.forEach(tc => {
+  try {
+    rtMusicService.deleteAlbums(tc.payload);
+    recordResult(tc.desc, false, '不正削除ペイロードが拒絶されず受け入れられた', 'HIGH');
+  } catch (err) {
+    recordResult(tc.desc, true);
+  }
+});
+
+console.log('\n>>> [8.2] アルバム削除 UI アクセシビリティ (WCAG 44px) & Enter誤送信抑止検証');
+const deleteModalContent = fs.readFileSync(path.join(__dirname, '../src/DeleteConfirmModal.html'), 'utf8');
+const albumListContentForDelete = fs.readFileSync(path.join(__dirname, '../src/AlbumList.html'), 'utf8');
+const trackDetailContentForDelete = fs.readFileSync(path.join(__dirname, '../src/TrackDetail.html'), 'utf8');
+
+// Enter誤送信抑止
+recordResult(
+  'DeleteConfirmModal: Enterキー誤送信／不正リロード抑止 (onsubmit="event.preventDefault();")',
+  deleteModalContent.includes('onsubmit="event.preventDefault();"'),
+  'form 要素に onsubmit="event.preventDefault();" が未設定',
+  'HIGH'
+);
+
+// 新規操作ボタン 44px タッチターゲット検証
+const deleteTouchButtons = [
+  { file: 'AlbumList', content: albumListContentForDelete, id: 'btn-toggle-album-select', desc: '選択切替ボタン' },
+  { file: 'AlbumList', content: albumListContentForDelete, id: 'btn-select-all-albums', desc: '全選択ボタン' },
+  { file: 'AlbumList', content: albumListContentForDelete, id: 'btn-deselect-all-albums', desc: '全解除ボタン' },
+  { file: 'AlbumList', content: albumListContentForDelete, id: 'btn-delete-selected-albums', desc: '一括削除ボタン' },
+  { file: 'TrackDetail', content: trackDetailContentForDelete, id: 'btn-delete-album', desc: '個別アルバム削除ボタン' },
+  { file: 'DeleteConfirmModal', content: deleteModalContent, id: 'btn-close-delete-confirm', desc: 'モーダル閉じるボタン' },
+  { file: 'DeleteConfirmModal', content: deleteModalContent, id: 'btn-cancel-delete-album', desc: 'モーダルキャンセルボタン' },
+  { file: 'DeleteConfirmModal', content: deleteModalContent, id: 'btn-confirm-execute-delete', desc: 'モーダル削除実行ボタン' }
+];
+
+deleteTouchButtons.forEach(btn => {
+  const regex = new RegExp(`id=["']${btn.id}["'][^>]*class=["']([^"']*)["']`, 'i');
+  const match = btn.content.match(regex);
+  const has44px = match && match[1] && match[1].includes('min-h-[44px]');
+  recordResult(
+    `${btn.file}: ${btn.desc} (${btn.id}) 44pxタッチターゲット確保`,
+    Boolean(has44px),
+    `${btn.id} に min-h-[44px] クラスが指定されていない`,
+    'MEDIUM'
+  );
+});
+
+console.log('\n>>> [8.3] アルバム削除 多重送信 (Race Condition) 防止検証');
+const scriptsAppHtmlForDelete = fs.readFileSync(path.join(__dirname, '../src/ScriptsApp.html'), 'utf8');
+
+const hasDeleteBtnDisabled = scriptsAppHtmlForDelete.includes('btnExecute.disabled = true;');
+recordResult(
+  'Race Condition防止: executeDeleteAlbums 開始時に確定ボタンが disabled = true に設定される',
+  hasDeleteBtnDisabled,
+  'btnExecute.disabled = true が未設定',
+  'HIGH'
+);
+
+const hasDeleteSpinner = scriptsAppHtmlForDelete.includes("spinner.classList.remove('hidden');");
+recordResult(
+  '視覚フィードバック: executeDeleteAlbums 開始時にスピナーが表示される',
+  hasDeleteSpinner,
+  'spinner表示処理が未設定',
+  'LOW'
+);
+
+const hasCancelBtnDisabled = scriptsAppHtmlForDelete.includes('btnCancel.disabled = true;');
+recordResult(
+  'Race Condition/二重操作防止: executeDeleteAlbums 開始時にキャンセルボタンが disabled = true に設定される (BUG-002)',
+  hasCancelBtnDisabled,
+  'btnCancel.disabled = true が未設定',
+  'MEDIUM'
+);
+
+const hasCloseBtnDisabled = scriptsAppHtmlForDelete.includes('btnClose.disabled = true;');
+recordResult(
+  'Race Condition/二重操作防止: executeDeleteAlbums 開始時にモーダル閉じるボタンが disabled = true に設定される (BUG-002)',
+  hasCloseBtnDisabled,
+  'btnClose.disabled = true が未設定',
+  'MEDIUM'
+);
+
+const hasDeleteGuard = scriptsAppHtmlForDelete.includes('if (this.isDeletingAlbums)');
+recordResult(
+  'Race Condition/状態破壊防止: closeDeleteConfirmModal で削除API通信中のモーダル閉じる操作が抑止される (BUG-002)',
+  hasDeleteGuard,
+  'isDeletingAlbums によるクローズガードが未設定',
+  'HIGH'
+);
+
+const hasSearchResetMode = scriptsAppHtmlForDelete.includes('this.store.state.isAlbumSelectMode = false;') &&
+                           scriptsAppHtmlForDelete.includes('this.store.state.selectedAlbumKeysForDeletion.clear();');
+recordResult(
+  '状態リーク防止: クイック検索結果選択時にアルバム選択モードおよび選択キーSetが初期化される (BUG-001)',
+  hasSearchResetMode,
+  'selectSearchResultItem での選択モード初期化が未設定',
+  'MEDIUM'
+);
 
 // -----------------------------------------------------------------------------
 // 結果サマリー

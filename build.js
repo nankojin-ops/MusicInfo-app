@@ -35,7 +35,8 @@ const htmlIncludes = [
   'ManualModal',
   'EditAlbumModal',
   'ImageModal',
-  'DriveArtworkModal'
+  'DriveArtworkModal',
+  'DeleteConfirmModal'
 ];
 
 htmlIncludes.forEach(name => {

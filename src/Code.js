@@ -284,6 +284,30 @@ function apiResolveDriveArtwork(payload) {
   }
 }
 
+/**
+ * 【RPC】アルバム一括削除API
+ * @param {Object} payload 
+ * @returns {ApiResponse}
+ */
+function apiDeleteAlbumsBatch(payload) {
+  try {
+    const data = getMusicService().deleteAlbums(payload);
+    return {
+      success: true,
+      data: data,
+      timestamp: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error('apiDeleteAlbumsBatch エラー:', err);
+    return {
+      success: false,
+      error: err.message,
+      code: err.code || 'ALBUM_DELETE_ERROR',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     doGet,
@@ -298,6 +322,7 @@ if (typeof module !== 'undefined' && module.exports) {
     apiSaveTrackSingle,
     apiUpdateAlbumBatch,
     apiUploadArtwork,
-    apiResolveDriveArtwork
+    apiResolveDriveArtwork,
+    apiDeleteAlbumsBatch
   };
 }

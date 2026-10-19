@@ -225,9 +225,38 @@
       <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Artist:</span>
       <h2 id="albums-header-artist-name" class="text-sm font-bold text-slate-200 truncate">未選択</h2>
     </div>
-    <span id="album-count-badge" class="px-2 py-0.5 bg-slate-800 text-slate-400 text-xs rounded-full font-mono flex-shrink-0">
-      0作品
-    </span>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <span id="album-count-badge" class="px-2 py-0.5 bg-slate-800 text-slate-400 text-xs rounded-full font-mono">
+        0作品
+      </span>
+      <button id="btn-toggle-album-select" type="button" aria-pressed="false" aria-label="アルバム複数選択モード切替" title="複数選択モードに切り替え" class="min-h-[44px] min-w-[44px] px-2.5 py-1 text-xs font-medium rounded-lg text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition flex items-center justify-center gap-1 border border-slate-700">
+        <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+        </svg>
+        <span id="btn-toggle-album-select-text">選択</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 選択モード用ツールバー (通常時は hidden) -->
+  <div id="album-selection-toolbar" class="hidden px-3 py-2 border-b border-indigo-900/50 bg-indigo-950/30 flex items-center justify-between gap-2 flex-shrink-0 transition-all">
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <button id="btn-select-all-albums" type="button" class="min-h-[44px] min-w-[44px] px-2.5 py-1 text-xs font-medium rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition flex items-center justify-center">
+        全選択
+      </button>
+      <button id="btn-deselect-all-albums" type="button" class="min-h-[44px] min-w-[44px] px-2.5 py-1 text-xs font-medium rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 active:scale-95 transition flex items-center justify-center">
+        全解除
+      </button>
+      <span id="selected-album-count-badge" class="px-2 py-0.5 bg-indigo-900/60 text-indigo-300 border border-indigo-700/50 text-xs rounded-full font-mono flex items-center">
+        0件選択中
+      </span>
+    </div>
+    <button id="btn-delete-selected-albums" type="button" disabled class="min-h-[44px] min-w-[44px] px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/50 text-rose-300 cursor-not-allowed hover:bg-rose-600 hover:text-white active:scale-95 transition flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+      </svg>
+      <span>削除</span>
+    </button>
   </div>
 
   <!-- アルバムカードグリッドスクロールエリア -->
@@ -312,6 +341,14 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
         </svg>
         <span class="text-xs font-medium hidden sm:inline">曲追加</span>
+      </button>
+
+      <!-- アルバム削除ボタン (WCAG 44pxタップ領域保証) -->
+      <button id="btn-delete-album" class="min-h-[44px] min-w-[44px] p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムを削除">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+        </svg>
+        <span class="text-xs font-medium hidden sm:inline">削除</span>
       </button>
     </div>
   </div>
@@ -855,6 +892,78 @@
   </div>
 </div>
 
+  <!-- アルバム削除確認モーダル -->
+<div id="modal-delete-confirm" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 bg-slate-950/85 backdrop-blur-sm">
+  <div class="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-modalScale">
+
+    <!-- モーダルヘッダー -->
+    <div class="px-4 py-3 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
+      <div class="flex items-center gap-2">
+        <button id="btn-close-delete-confirm" type="button" class="min-h-[44px] min-w-[44px] text-slate-400 hover:text-slate-200 p-2 -ml-2 rounded-lg hover:bg-slate-800 transition flex items-center justify-center" title="閉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+        <div class="flex items-center gap-2">
+          <div class="w-6 h-6 rounded bg-rose-600 flex items-center justify-center text-white">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+            </svg>
+          </div>
+          <h3 class="text-sm md:text-base font-bold text-slate-100">アルバムの削除確認</h3>
+        </div>
+      </div>
+    </div>
+
+    <!-- モーダル本文 (Enter誤送信抑止) -->
+    <form id="form-delete-confirm" onsubmit="event.preventDefault();" class="p-4 md:p-5 space-y-4">
+      
+      <!-- 警告メッセージボックス -->
+      <div class="bg-rose-950/40 border border-rose-900/60 rounded-xl p-3.5 text-xs text-rose-200 space-y-1.5">
+        <div class="font-bold text-rose-300 flex items-center gap-1.5 text-xs">
+          <svg class="w-4 h-4 text-rose-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+          <span>警告: この操作は取り消せません</span>
+        </div>
+        <p class="text-slate-300 leading-relaxed">
+          選択したアルバムに属するすべての収録曲データがスプレッドシートから完全に削除されます。
+        </p>
+        <p id="delete-confirm-track-warning" class="font-semibold text-rose-300 pt-1 border-t border-rose-900/40">
+          合計 0 曲のトラックが完全に削除されます。
+        </p>
+      </div>
+
+      <!-- 削除対象アルバムリスト表示領域 -->
+      <div class="space-y-1.5">
+        <label class="block text-xs font-semibold text-slate-300">
+          削除対象アルバム (<span id="delete-confirm-album-count">0</span>件)
+        </label>
+        <div id="delete-confirm-album-list" class="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-slate-950/80 border border-slate-800 rounded-lg text-xs">
+          <!-- 動的レンダリング: 対象アルバム項目 -->
+        </div>
+        <p class="text-[11px] text-slate-500 pt-1">
+          ※Google ドライブ内のアートワーク画像ファイルは削除されず保持されます。
+        </p>
+      </div>
+
+      <!-- アクションボタン群 (WCAG 44pxタップ領域確保) -->
+      <div class="pt-3 border-t border-slate-800 flex items-center justify-end gap-2.5">
+        <button id="btn-cancel-delete-album" type="button"
+          class="min-h-[44px] min-w-[80px] px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center justify-center">
+          キャンセル
+        </button>
+        <button id="btn-confirm-execute-delete" type="button"
+          class="min-h-[44px] min-w-[120px] px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-lg shadow transition flex items-center justify-center gap-2">
+          <span id="delete-album-btn-text">削除を実行する</span>
+          <div id="delete-album-spinner" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+        </button>
+      </div>
+    </form>
+
+  </div>
+</div>
+
 
   <!-- トースト通知コンテナ -->
   <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
@@ -1306,6 +1415,15 @@ class ApiClient {
   resolveDriveArtwork(payload) {
     return this.callGAS('apiResolveDriveArtwork', payload);
   }
+
+  
+
+
+
+
+  deleteAlbumsBatch(albums) {
+    return this.callGAS('apiDeleteAlbumsBatch', { albums: albums });
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -1346,7 +1464,11 @@ class Store {
 
       
       zoomImageUrl: null,  
-      zoomImageTitle: ''  
+      zoomImageTitle: '',
+
+      
+      isAlbumSelectMode: false,
+      selectedAlbumKeysForDeletion: new Set()
     };  
   }  
 
@@ -1665,6 +1787,36 @@ class Store {
     this.state.selectedArtist = String(newAlbumMeta.albumArtist).trim();  
     this.state.selectedAlbum = String(newAlbumMeta.albumName).trim();  
   }  
+
+  
+
+
+  
+  deleteAlbumsFromCatalog(deletedKeys) {  
+    if (!deletedKeys || !Array.isArray(deletedKeys) || deletedKeys.length === 0) {  
+      this.state.selectedAlbumKeysForDeletion.clear();  
+      this.state.isAlbumSelectMode = false;  
+      return;  
+    }  
+
+    const targetKeySet = new Set(  
+      deletedKeys.map(k => `${String(k.albumArtist || '').trim()}:::${String(k.albumName || '').trim()}`)  
+    );  
+
+    
+    this.state.allTracks = this.state.allTracks.filter(t => {  
+      if (!t || typeof t !== 'object') return false;  
+      const key = `${String(t.albumArtist || '').trim()}:::${String(t.albumName || '').trim()}`;  
+      return !targetKeySet.has(key);  
+    });  
+
+    
+    this.buildCatalog();  
+
+    
+    this.state.selectedAlbumKeysForDeletion.clear();  
+    this.state.isAlbumSelectMode = false;  
+  }  
 }  
 
 if (typeof window !== 'undefined') {  
@@ -1686,6 +1838,7 @@ class App {
     this.focusedSearchIndex = -1;  
     this.currentSearchTarget = 'pc'; 
     this.driveArtworkContext = null; 
+    this.isDeletingAlbums = false; 
   }  
 
   
@@ -2033,6 +2186,77 @@ class App {
     }  
 
     
+    const btnToggleSelect = document.getElementById('btn-toggle-album-select');
+    if (btnToggleSelect) {
+      btnToggleSelect.addEventListener('click', () => this.toggleAlbumSelectMode());
+    }
+
+    
+    const btnSelectAll = document.getElementById('btn-select-all-albums');
+    if (btnSelectAll) {
+      btnSelectAll.addEventListener('click', () => this.selectAllAlbums());
+    }
+    const btnDeselectAll = document.getElementById('btn-deselect-all-albums');
+    if (btnDeselectAll) {
+      btnDeselectAll.addEventListener('click', () => this.deselectAllAlbums());
+    }
+
+    
+    const btnDeleteSelected = document.getElementById('btn-delete-selected-albums');
+    if (btnDeleteSelected) {
+      btnDeleteSelected.addEventListener('click', () => {
+        const albums = this.getSelectedAlbumsForDeletion();
+        if (albums.length > 0) {
+          this.openDeleteConfirmModal(albums);
+        } else {
+          Utils.showToast('削除対象のアルバムが選択されていません', 'warning');
+        }
+      });
+    }
+
+    
+    const btnDeleteAlbum = document.getElementById('btn-delete-album');
+    if (btnDeleteAlbum) {
+      btnDeleteAlbum.addEventListener('click', () => {
+        const album = this.store.getSelectedAlbumData();
+        if (album) {
+          this.openDeleteConfirmModal([{
+            albumArtist: album.albumArtist,
+            albumName: album.albumName,
+            totalTracks: album.totalTracks
+          }]);
+        } else {
+          Utils.showToast('削除対象のアルバムが選択されていません', 'warning');
+        }
+      });
+    }
+
+    
+    const btnCloseDelete = document.getElementById('btn-close-delete-confirm');
+    if (btnCloseDelete) btnCloseDelete.addEventListener('click', () => this.closeDeleteConfirmModal());
+    const btnCancelDelete = document.getElementById('btn-cancel-delete-album');
+    if (btnCancelDelete) btnCancelDelete.addEventListener('click', () => this.closeDeleteConfirmModal());
+    const modalDelete = document.getElementById('modal-delete-confirm');
+    if (modalDelete) {
+      modalDelete.addEventListener('click', (e) => {
+        if (e.target === modalDelete) {
+          this.closeDeleteConfirmModal();
+        }
+      });
+    }
+    const formDelete = document.getElementById('form-delete-confirm');
+    if (formDelete) {
+      formDelete.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.executeDeleteAlbums();
+      });
+    }
+    const btnConfirmExecuteDelete = document.getElementById('btn-confirm-execute-delete');
+    if (btnConfirmExecuteDelete) {
+      btnConfirmExecuteDelete.addEventListener('click', () => this.executeDeleteAlbums());
+    }
+
+    
     window.addEventListener('keydown', (e) => {  
       if (e.key === 'Escape') {  
         this.closeItunesModal();  
@@ -2040,6 +2264,7 @@ class App {
         this.closeImageModal();  
         this.closeEditAlbumModal();  
         this.closeDriveArtworkModal();  
+        this.closeDeleteConfirmModal();
         this.closeSearchDropdown('pc');  
         this.closeSearchDropdown('mobile');  
       }  
@@ -2157,6 +2382,10 @@ class App {
     const albums = this.store.getAlbumsForSelectedArtist();  
     this.store.state.selectedAlbum = albums.length > 0 ? albums[0].albumName : null;  
 
+    
+    this.store.state.selectedAlbumKeysForDeletion.clear();
+    this.toggleAlbumSelectMode(false);
+
     this.renderArtistList();  
     this.renderAlbumList();  
     this.renderTrackDetail();  
@@ -2174,17 +2403,44 @@ class App {
     const headerName = document.getElementById('albums-header-artist-name');  
     const countBadge = document.getElementById('album-count-badge');  
     const emptyState = document.getElementById('album-empty-state');  
+    const btnToggleSelect = document.getElementById('btn-toggle-album-select');
     if (!container) return;  
+
+    const isSelectMode = Boolean(this.store.state.isAlbumSelectMode);
 
     const artist = this.store.state.selectedArtist;  
     if (!artist) {  
       if (headerName) headerName.textContent = '未選択';  
       if (countBadge) countBadge.textContent = '0作品';  
+      if (btnToggleSelect) btnToggleSelect.classList.add('hidden');
       container.innerHTML = '';  
       if (emptyState) emptyState.classList.remove('hidden');  
       return;  
     }  
 
+    const toolbar = document.getElementById('album-selection-toolbar');
+    if (toolbar) {
+      toolbar.classList.toggle('hidden', !isSelectMode);
+    }
+
+    if (btnToggleSelect) {
+      btnToggleSelect.classList.remove('hidden');
+      const btnText = document.getElementById('btn-toggle-album-select-text');
+      if (btnText) {
+        btnText.textContent = isSelectMode ? '完了' : '選択';
+      }
+      if (isSelectMode) {
+        btnToggleSelect.classList.add('bg-indigo-600', 'text-white', 'border-indigo-500');
+        btnToggleSelect.classList.remove('bg-slate-800', 'text-slate-300', 'border-slate-700');
+        btnToggleSelect.setAttribute('aria-pressed', 'true');
+        btnToggleSelect.title = '選択モードを終了（完了）';
+      } else {
+        btnToggleSelect.classList.remove('bg-indigo-600', 'text-white', 'border-indigo-500');
+        btnToggleSelect.classList.add('bg-slate-800', 'text-slate-300', 'border-slate-700');
+        btnToggleSelect.setAttribute('aria-pressed', 'false');
+        btnToggleSelect.title = '複数選択モードに切り替え';
+      }
+    }
     if (headerName) headerName.textContent = artist;  
     const albums = this.store.getAlbumsForSelectedArtist();  
     if (countBadge) countBadge.textContent = `${albums.length}作品`;  
@@ -2192,23 +2448,55 @@ class App {
     if (albums.length === 0) {  
       container.innerHTML = '';  
       if (emptyState) emptyState.classList.remove('hidden');  
+      this.updateAlbumSelectionUI();
       return;  
     }  
     if (emptyState) emptyState.classList.add('hidden');  
 
     const html = albums.map((album) => {  
-      const isSelected = this.store.state.selectedAlbum === album.albumName;  
-      const borderClass = isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/30' : 'border-slate-800 hover:border-slate-700';  
+      const albumArtist = album.albumArtist || artist;
+      const albumKey = `${String(albumArtist).trim()}:::${String(album.albumName || '').trim()}`;
+      const isChecked = this.store.state.selectedAlbumKeysForDeletion.has(albumKey);
+
+      let borderClass = 'border-slate-800 hover:border-slate-700';
+      if (isSelectMode) {
+        borderClass = isChecked 
+          ? 'border-indigo-500 bg-indigo-950/20 ring-2 ring-indigo-500/50' 
+          : 'border-slate-800 hover:border-slate-600 bg-slate-900/80';
+      } else {
+        const isSelected = this.store.state.selectedAlbum === album.albumName;  
+        borderClass = isSelected ? 'border-indigo-500 ring-2 ring-indigo-500/30' : 'border-slate-800 hover:border-slate-700';  
+      }
+
       const rawArtwork = album.artworkUrl || '';  
       const resolvedArtwork = Utils.resolveArtworkUrl(rawArtwork, 400);  
       const artworkHtml = resolvedArtwork  
         ? '<img src="' + Utils.escapeHtml(resolvedArtwork) + '" alt="art" referrerpolicy="no-referrer" loading="lazy" class="w-full h-full object-cover transition duration-300 group-hover:scale-105" data-artwork="' + Utils.escapeHtml(rawArtwork) + '" data-error-step="0">'  
         : '<div class="w-full h-full flex items-center justify-center text-slate-700"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg></div>';  
 
+      
+      let checkboxHtml = '';
+      if (isSelectMode) {
+        checkboxHtml = `
+          <div class="absolute top-2 left-2 z-10 w-6 h-6 rounded-md flex items-center justify-center transition shadow-md ${
+            isChecked 
+              ? 'bg-indigo-600 text-white ring-2 ring-white/30' 
+              : 'bg-slate-900/80 border-2 border-slate-500 text-transparent hover:border-indigo-400'
+          }">
+            <svg class="w-4 h-4 ${isChecked ? 'block' : 'hidden'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </div>
+        `;
+      }
+
       return `  
-        <div class="album-card group cursor-pointer bg-slate-900 border ${borderClass} rounded-xl p-2.5 flex flex-col transition hover:bg-slate-800/80 active:scale-95 select-none"  
-             data-album="${Utils.escapeHtml(album.albumName)}">  
+        <div class="album-card group cursor-pointer bg-slate-900 border ${borderClass} rounded-xl p-2.5 flex flex-col transition hover:bg-slate-800/80 active:scale-95 select-none relative"  
+             data-album="${Utils.escapeHtml(album.albumName)}"
+             data-artist="${Utils.escapeHtml(albumArtist)}"
+             data-key="${Utils.escapeHtml(albumKey)}">  
           <div class="aspect-square w-full rounded-lg bg-slate-800 overflow-hidden mb-2 relative">  
+            ${checkboxHtml}
             ${artworkHtml}  
             <div class="absolute bottom-1 right-1 px-1.5 py-0.5 bg-slate-950/80 backdrop-blur rounded text-[10px] font-mono text-slate-300">  
               ${album.totalTracks}曲  
@@ -2233,9 +2521,18 @@ class App {
     container.querySelectorAll('.album-card').forEach((el) => {  
       el.addEventListener('click', () => {  
         const albumName = el.getAttribute('data-album');  
-        this.selectAlbum(albumName);  
+        const albumArtist = el.getAttribute('data-artist');
+        if (this.store.state.isAlbumSelectMode) {
+          
+          this.toggleAlbumSelection(albumArtist, albumName);
+        } else {
+          
+          this.selectAlbum(albumName);  
+        }
       });  
     });  
+
+    this.updateAlbumSelectionUI();
   }  
 
   
@@ -2561,6 +2858,11 @@ class App {
     const trackNo = itemEl.getAttribute('data-track-no');  
 
     this.closeSearchDropdown(target);  
+
+    
+    this.store.state.isAlbumSelectMode = false;
+    this.store.state.selectedAlbumKeysForDeletion.clear();
+    this.toggleAlbumSelectMode(false);
 
     if (type === 'artist') {  
       this.selectArtist(artist);  
@@ -3681,6 +3983,312 @@ class App {
       Utils.toggleGlobalLoading(false);  
     }  
   }  
+
+  
+
+
+
+  toggleAlbumSelectMode(forceState) {
+    const nextState = (typeof forceState === 'boolean') ? forceState : !this.store.state.isAlbumSelectMode;
+    this.store.state.isAlbumSelectMode = nextState;
+
+    const toolbar = document.getElementById('album-selection-toolbar');
+    const btnText = document.getElementById('btn-toggle-album-select-text');
+    const btnToggle = document.getElementById('btn-toggle-album-select');
+
+    if (toolbar) {
+      toolbar.classList.toggle('hidden', !nextState);
+    }
+    if (btnText) {
+      btnText.textContent = nextState ? '完了' : '選択';
+    }
+    if (btnToggle) {
+      if (nextState) {
+        btnToggle.classList.add('bg-indigo-600', 'text-white', 'border-indigo-500');
+        btnToggle.classList.remove('bg-slate-800', 'text-slate-300', 'border-slate-700');
+        btnToggle.setAttribute('aria-pressed', 'true');
+        btnToggle.title = '選択モードを終了（完了）';
+      } else {
+        btnToggle.classList.remove('bg-indigo-600', 'text-white', 'border-indigo-500');
+        btnToggle.classList.add('bg-slate-800', 'text-slate-300', 'border-slate-700');
+        btnToggle.setAttribute('aria-pressed', 'false');
+        btnToggle.title = '複数選択モードに切り替え';
+      }
+    }
+
+    if (!nextState) {
+      this.store.state.selectedAlbumKeysForDeletion.clear();
+    }
+
+    this.renderAlbumList();
+  }
+
+  
+
+
+
+
+  toggleAlbumSelection(albumArtist, albumName) {
+    const key = `${String(albumArtist || '').trim()}:::${String(albumName || '').trim()}`;
+    if (this.store.state.selectedAlbumKeysForDeletion.has(key)) {
+      this.store.state.selectedAlbumKeysForDeletion.delete(key);
+    } else {
+      this.store.state.selectedAlbumKeysForDeletion.add(key);
+    }
+    this.renderAlbumList();
+  }
+
+  
+
+
+  selectAllAlbums() {
+    const albums = this.store.getAlbumsForSelectedArtist();
+    const artist = this.store.state.selectedArtist || '';
+    albums.forEach(album => {
+      const aArtist = album.albumArtist || artist;
+      const key = `${String(aArtist).trim()}:::${String(album.albumName || '').trim()}`;
+      this.store.state.selectedAlbumKeysForDeletion.add(key);
+    });
+    this.renderAlbumList();
+  }
+
+  
+
+
+  deselectAllAlbums() {
+    this.store.state.selectedAlbumKeysForDeletion.clear();
+    this.renderAlbumList();
+  }
+
+  
+
+
+  updateAlbumSelectionUI() {
+    const countBadge = document.getElementById('selected-album-count-badge');
+    const btnDelete = document.getElementById('btn-delete-selected-albums');
+    const count = this.store.state.selectedAlbumKeysForDeletion ? this.store.state.selectedAlbumKeysForDeletion.size : 0;
+
+    if (countBadge) {
+      countBadge.textContent = `${count}件選択中`;
+    }
+
+    if (btnDelete) {
+      if (count > 0) {
+        btnDelete.disabled = false;
+        btnDelete.classList.remove('cursor-not-allowed', 'opacity-50', 'bg-rose-600/50', 'text-rose-300');
+        btnDelete.classList.add('bg-rose-600', 'text-white');
+      } else {
+        btnDelete.disabled = true;
+        btnDelete.classList.add('cursor-not-allowed', 'opacity-50', 'bg-rose-600/50', 'text-rose-300');
+        btnDelete.classList.remove('bg-rose-600', 'text-white');
+      }
+    }
+  }
+
+  
+
+
+
+  getSelectedAlbumsForDeletion() {
+    const albums = this.store.getAlbumsForSelectedArtist();
+    const artist = this.store.state.selectedArtist || '';
+    const selectedKeys = this.store.state.selectedAlbumKeysForDeletion || new Set();
+    const result = [];
+
+    albums.forEach(album => {
+      const aArtist = album.albumArtist || artist;
+      const key = `${String(aArtist).trim()}:::${String(album.albumName || '').trim()}`;
+      if (selectedKeys.has(key)) {
+        result.push({
+          albumArtist: aArtist,
+          albumName: album.albumName,
+          totalTracks: album.totalTracks || 0
+        });
+      }
+    });
+
+    return result;
+  }
+
+  
+
+
+
+  openDeleteConfirmModal(targetAlbums) {
+    if (!targetAlbums || !Array.isArray(targetAlbums) || targetAlbums.length === 0) {
+      Utils.showToast('削除対象のアルバムが選択されていません', 'warning');
+      return;
+    }
+
+    this.deletingAlbums = targetAlbums;
+
+    const modal = document.getElementById('modal-delete-confirm');
+    const listEl = document.getElementById('delete-confirm-album-list');
+    const countEl = document.getElementById('delete-confirm-album-count');
+    const warningEl = document.getElementById('delete-confirm-track-warning');
+    const btnExecute = document.getElementById('btn-confirm-execute-delete');
+    const btnText = document.getElementById('delete-album-btn-text');
+    const spinner = document.getElementById('delete-album-spinner');
+
+    if (countEl) countEl.textContent = String(targetAlbums.length);
+
+    
+    const targetKeySet = new Set(
+      targetAlbums.map(a => `${String(a.albumArtist || '').trim()}:::${String(a.albumName || '').trim()}`)
+    );
+    const totalTracks = this.store.state.allTracks.filter(t => {
+      if (!t || typeof t !== 'object') return false;
+      const key = `${String(t.albumArtist || '').trim()}:::${String(t.albumName || '').trim()}`;
+      return targetKeySet.has(key);
+    }).length;
+
+    if (warningEl) {
+      warningEl.textContent = `合計 ${totalTracks} 曲のトラックがスプレッドシートから完全に削除されます。`;
+    }
+
+    if (listEl) {
+      listEl.innerHTML = targetAlbums.map(a => `
+        <div class="flex items-center justify-between p-2 rounded bg-slate-900 border border-slate-800 text-xs">
+          <div class="flex flex-col min-w-0 pr-2">
+            <span class="font-bold text-slate-200 truncate">${Utils.escapeHtml(a.albumName)}</span>
+            <span class="text-slate-400 text-[11px] truncate">${Utils.escapeHtml(a.albumArtist)}</span>
+          </div>
+          <span class="text-slate-500 font-mono text-[11px] flex-shrink-0">${a.totalTracks !== undefined ? a.totalTracks + '曲' : ''}</span>
+        </div>
+      `).join('');
+    }
+
+    this.isDeletingAlbums = false;
+    const btnCancel = document.getElementById('btn-cancel-delete-album');
+    const btnClose = document.getElementById('btn-close-delete-confirm');
+    if (btnExecute) btnExecute.disabled = false;
+    if (btnCancel) btnCancel.disabled = false;
+    if (btnClose) btnClose.disabled = false;
+    if (btnText) btnText.textContent = '削除を実行する';
+    if (spinner) spinner.classList.add('hidden');
+
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  
+
+
+  closeDeleteConfirmModal() {
+    if (this.isDeletingAlbums) {
+      
+      return;
+    }
+    const modal = document.getElementById('modal-delete-confirm');
+    if (modal) modal.classList.add('hidden');
+    this.deletingAlbums = null;
+  }
+
+  
+
+
+  async executeDeleteAlbums() {
+    if (this.isDeletingAlbums) {
+      return;
+    }
+    if (!this.deletingAlbums || this.deletingAlbums.length === 0) {
+      this.closeDeleteConfirmModal();
+      return;
+    }
+
+    const btnExecute = document.getElementById('btn-confirm-execute-delete');
+    const btnCancel = document.getElementById('btn-cancel-delete-album');
+    const btnClose = document.getElementById('btn-close-delete-confirm');
+    const btnText = document.getElementById('delete-album-btn-text');
+    const spinner = document.getElementById('delete-album-spinner');
+
+    this.isDeletingAlbums = true;
+    if (btnExecute) btnExecute.disabled = true;
+    if (btnCancel) btnCancel.disabled = true;
+    if (btnClose) btnClose.disabled = true;
+    if (btnText) btnText.textContent = '削除処理中...';
+    if (spinner) spinner.classList.remove('hidden');
+
+    const albumsToDelete = this.deletingAlbums.map(a => ({
+      albumArtist: String(a.albumArtist || '').trim(),
+      albumName: String(a.albumName || '').trim()
+    }));
+
+    try {
+      const result = await this.api.deleteAlbumsBatch(albumsToDelete);
+
+      
+      this.store.deleteAlbumsFromCatalog(albumsToDelete);
+
+      this.isDeletingAlbums = false;
+      this.closeDeleteConfirmModal();
+
+      
+      const firstAlbum = albumsToDelete[0].albumName;
+      const deletedCount = result && result.deletedAlbumCount !== undefined ? result.deletedAlbumCount : albumsToDelete.length;
+      const trackCount = result && result.deletedTrackCount !== undefined ? result.deletedTrackCount : 0;
+      const toastMsg = deletedCount > 1
+        ? `「${firstAlbum}」など ${deletedCount} 件のアルバム（計 ${trackCount} 曲）を削除しました`
+        : `アルバム「${firstAlbum}」（計 ${trackCount} 曲）を削除しました`;
+      Utils.showToast(toastMsg, 'success');
+
+      
+      this.toggleAlbumSelectMode(false);
+
+      
+      const deletedKeySet = new Set(albumsToDelete.map(a => `${a.albumArtist}:::${a.albumName}`));
+      const currentSelectedAlbum = this.store.state.selectedAlbum;
+      const currentSelectedArtist = this.store.state.selectedArtist;
+      const currentKey = `${String(currentSelectedArtist || '').trim()}:::${String(currentSelectedAlbum || '').trim()}`;
+
+      let currentAlbumWasDeleted = false;
+      if (currentSelectedAlbum && deletedKeySet.has(currentKey)) {
+        this.store.state.selectedAlbum = null;
+        this.renderTrackDetail();
+        currentAlbumWasDeleted = true;
+      }
+
+      
+      const remainingAlbums = this.store.getAlbumsForSelectedArtist();
+
+      if (remainingAlbums.length > 0) {
+        
+        if (!this.store.state.selectedAlbum) {
+          this.store.state.selectedAlbum = remainingAlbums[0].albumName;
+          this.renderTrackDetail();
+        }
+        this.renderArtistList();
+        this.renderAlbumList();
+
+        if (currentAlbumWasDeleted && window.innerWidth < 768) {
+          this.setMobileStep(2);
+        }
+      } else {
+        
+        this.store.state.selectedArtist = null;
+        this.store.state.selectedAlbum = null;
+        this.renderArtistList();
+        this.renderAlbumList();
+        this.renderTrackDetail();
+
+        if (window.innerWidth < 768) {
+          this.setMobileStep(1);
+        } else if (this.store.state.artistList.length > 0) {
+          
+          this.selectArtist(this.store.state.artistList[0]);
+        }
+      }
+    } catch (err) {
+      console.error('アルバム一括削除エラー:', err);
+      Utils.showToast(err.message || 'アルバムの削除に失敗しました', 'error');
+    } finally {
+      this.isDeletingAlbums = false;
+      if (btnExecute) btnExecute.disabled = false;
+      if (btnCancel) btnCancel.disabled = false;
+      if (btnClose) btnClose.disabled = false;
+      if (btnText) btnText.textContent = '削除を実行する';
+      if (spinner) spinner.classList.add('hidden');
+    }
+  }
 }  
 
 if (typeof window !== 'undefined') {  

@@ -253,6 +253,126 @@ class SheetService {
   }
 
   /**
+   * 複数アルバムおよびその収録曲の一括削除（アトミック置換・排他制御）
+   * @param {Array<{ albumArtist: string, albumName: string }>} albumKeys 
+   * @returns {{ deletedAlbumCount: number, deletedTrackCount: number, deletedAlbums: Array<{ albumArtist: string, albumName: string }>, remainingRowCount: number }}
+   */
+  deleteAlbumsBatch(albumKeys) {
+    if (!albumKeys || !Array.isArray(albumKeys) || albumKeys.length === 0) {
+      return {
+        deletedAlbumCount: 0,
+        deletedTrackCount: 0,
+        deletedAlbums: [],
+        remainingRowCount: 0
+      };
+    }
+
+    // 1. スクリプト排他ロックの獲得（最大10秒待機）
+    const lock = LockService.getScriptLock();
+    const hasLock = lock.tryLock(10000);
+    if (!hasLock) {
+      const err = new Error('他ユーザーが更新処理中のため、削除を実行できませんでした。しばらく時間をおいて再試行してください。');
+      err.code = 'LOCK_TIMEOUT';
+      throw err;
+    }
+
+    try {
+      const sheet = this.getOrCreateSheet();
+      const lastRow = sheet.getLastRow();
+      if (lastRow < 2) {
+        return {
+          deletedAlbumCount: 0,
+          deletedTrackCount: 0,
+          deletedAlbums: [],
+          remainingRowCount: 0
+        };
+      }
+
+      // 2. 複合キー Set の生成 (albumArtist:::albumName)
+      const targetKeySet = new Set();
+      for (let i = 0; i < albumKeys.length; i++) {
+        const k = albumKeys[i];
+        if (k && typeof k === 'object') {
+          const artist = String(k.albumArtist || '').trim();
+          const name = String(k.albumName || '').trim();
+          if (artist && name) {
+            targetKeySet.add(`${artist}:::${name}`);
+          }
+        }
+      }
+
+      if (targetKeySet.size === 0) {
+        return {
+          deletedAlbumCount: 0,
+          deletedTrackCount: 0,
+          deletedAlbums: [],
+          remainingRowCount: lastRow - 1
+        };
+      }
+
+      // 3. 既存データ行（2行目〜最終行、A〜H列）を一括取得
+      const dataRange = sheet.getRange(2, 1, lastRow - 1, 8);
+      const rawRows = dataRange.getValues();
+
+      const retainedRows = [];
+      const matchedKeySet = new Set();
+      let deletedTrackCount = 0;
+
+      for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        const rowArtist = String(row[1] || '').trim();
+        const rowAlbum = String(row[2] || '').trim();
+        const key = `${rowArtist}:::${rowAlbum}`;
+
+        if (targetKeySet.has(key)) {
+          deletedTrackCount++;
+          matchedKeySet.add(key);
+        } else {
+          retainedRows.push(row);
+        }
+      }
+
+      // 4. 実際に削除されたアルバム一覧を構築
+      const deletedAlbums = [];
+      const seenDeleted = new Set();
+      for (let i = 0; i < albumKeys.length; i++) {
+        const k = albumKeys[i];
+        if (k && typeof k === 'object') {
+          const artist = String(k.albumArtist || '').trim();
+          const name = String(k.albumName || '').trim();
+          const key = `${artist}:::${name}`;
+          if (matchedKeySet.has(key) && !seenDeleted.has(key)) {
+            seenDeleted.add(key);
+            deletedAlbums.push({ albumArtist: artist, albumName: name });
+          }
+        }
+      }
+
+      // 5. データ領域を一括置換（アトミック更新・残存0行時ガード）
+      dataRange.clearContent();
+      if (retainedRows.length > 0) {
+        const dateRange = sheet.getRange(2, 7, retainedRows.length, 1);
+        if (dateRange && typeof dateRange.setNumberFormat === 'function') {
+          dateRange.setNumberFormat('@');
+        }
+        sheet.getRange(2, 1, retainedRows.length, 8).setValues(retainedRows);
+      }
+
+      SpreadsheetApp.flush();
+
+      return {
+        deletedAlbumCount: deletedAlbums.length,
+        deletedTrackCount: deletedTrackCount,
+        deletedAlbums: deletedAlbums,
+        remainingRowCount: retainedRows.length
+      };
+    } finally {
+      // 6. 排他ロックの確実な解放
+      lock.releaseLock();
+    }
+  }
+
+  /**
    * スプレッドシート式インジェクション（=, @, +, - で始まる文字列）を無害化
    * @param {any} val 
    * @returns {string}

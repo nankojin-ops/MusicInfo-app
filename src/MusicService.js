@@ -728,6 +728,58 @@ class MusicService {
   }
 
   /**
+   * アルバム一括削除の業務受付・バリデーション・永続化委譲
+   * @param {Object} payload 
+   * @returns {{ deletedAlbumCount: number, deletedTrackCount: number, deletedAlbums: Array<{ albumArtist: string, albumName: string }>, remainingRowCount: number }}
+   */
+  deleteAlbums(payload) {
+    this.validateDeletePayload_(payload);
+    return this.sheetService.deleteAlbumsBatch(payload.albums);
+  }
+
+  /**
+   * アルバム削除ペイロードの厳格検証
+   * @param {any} payload 
+   */
+  validateDeletePayload_(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      const err = new Error('リクエストペイロードが不正です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    if (!payload.albums || !Array.isArray(payload.albums) || payload.albums.length === 0) {
+      const err = new Error('削除対象のアルバムが指定されていません。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    for (let i = 0; i < payload.albums.length; i++) {
+      const album = payload.albums[i];
+      if (!album || typeof album !== 'object' || Array.isArray(album)) {
+        const err = new Error(`インデックス ${i} のアルバム情報が不正です。`);
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+
+      const artist = typeof album.albumArtist === 'string' ? album.albumArtist.trim() : '';
+      const name = typeof album.albumName === 'string' ? album.albumName.trim() : '';
+
+      if (!artist || !name) {
+        const err = new Error('アルバムアーティスト名およびアルバム名は必須です。');
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+
+      if (artist.length > 255 || name.length > 255) {
+        const err = new Error('アルバムアーティスト名およびアルバム名は255文字以内で入力してください。');
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+    }
+  }
+
+  /**
    * スプレッドシート式インジェクション（=, @, +, - で始まる文字列）を無害化
    * @param {any} val 
    * @returns {string}

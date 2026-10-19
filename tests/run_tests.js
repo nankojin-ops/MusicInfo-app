@@ -1567,6 +1567,252 @@ expectedRelatedBtns.forEach(btnId => {
 assert(scriptsAppHtml.includes('relatedBtns.forEach(btn => { btn.disabled = true; });'), 'handleImageUpload: アップロード中に親フォームボタンが disabled 化される (BUG-002)');
 assert(scriptsAppHtml.includes('relatedBtns.forEach(btn => { btn.disabled = false; });'), 'handleImageUpload: finally ブロックで親フォームボタンが活性化復帰される (BUG-002)');
 
+// =============================================================================
+// [11] アルバム一括削除・個別削除機能の単体・結合テスト
+// =============================================================================
+console.log('\n[11] アルバム一括削除・個別削除機能の単体・結合テスト');
+
+// 11.1 SheetService.deleteAlbumsBatch 単体テスト
+console.log('\n[11.1] SheetService.deleteAlbumsBatch のテスト');
+
+let deleteMockSheetData = [
+  ['CD番号', 'アルバムアーティスト名', 'アルバム名', 'アーティスト名', 'トラック番号', 'トラック名', 'リリース日', 'アルバムアートURL'],
+  [1, 'Official髭男dism', 'Editorial', 'Official髭男dism', 1, 'Editorial (Intro)', '2021-08-18', 'https://example.com/art1.jpg'],
+  [1, 'Official髭男dism', 'Editorial', 'Official髭男dism', 2, 'Cry Baby', '2021-08-18', 'https://example.com/art1.jpg'],
+  [1, 'Official髭男dism', 'Traveler', 'Official髭男dism', 1, 'Pretender', '2019-10-09', 'https://example.com/art2.jpg'],
+  [1, 'BUMP OF CHICKEN', 'jupiter', 'BUMP OF CHICKEN', 1, '天体観測', '2002-02-20', 'https://example.com/art3.jpg'],
+  [1, 'King Gnu', 'CEREMONY', 'King Gnu', 1, '=cmd|\' /C calc\'', '2020-01-15', 'https://example.com/art4.jpg']
+];
+
+let deleteCleared = false;
+let deleteSetValuesCalledWith = null;
+let deleteLockReleased = false;
+
+const deleteMockSheetObj = {
+  getLastRow: () => deleteMockSheetData.length,
+  getRange: (row, col, numRows, numCols) => ({
+    getValues: () => deleteMockSheetData.slice(row - 1, row - 1 + numRows),
+    clearContent: () => { deleteCleared = true; },
+    setValues: (values) => { deleteSetValuesCalledWith = values; },
+    setNumberFormat: (fmt) => {}
+  })
+};
+
+global.SpreadsheetApp = {
+  openById: () => ({
+    getSheetByName: () => deleteMockSheetObj
+  }),
+  flush: () => {}
+};
+
+global.LockService = {
+  getScriptLock: () => ({
+    tryLock: (timeout) => true,
+    releaseLock: () => { deleteLockReleased = true; }
+  })
+};
+
+const deleteSheetService = new SheetService(config);
+
+// 11.1.1 単一アルバム削除テスト
+const delResult1 = deleteSheetService.deleteAlbumsBatch([
+  { albumArtist: 'Official髭男dism', albumName: 'Editorial' }
+]);
+assert(deleteLockReleased === true, 'SheetService.deleteAlbumsBatch: 排他ロックが確実に解放されること');
+assert(deleteCleared === true, 'SheetService.deleteAlbumsBatch: clearContent() が実行されること');
+assert(delResult1.deletedAlbumCount === 1, 'SheetService.deleteAlbumsBatch: 削除アルバム数が 1 であること');
+assert(delResult1.deletedTrackCount === 2, 'SheetService.deleteAlbumsBatch: 削除トラック数が 2 であること');
+assert(delResult1.remainingRowCount === 3, 'SheetService.deleteAlbumsBatch: 残存トラック数が 3 であること');
+assert(deleteSetValuesCalledWith !== null && deleteSetValuesCalledWith.length === 3, 'SheetService.deleteAlbumsBatch: 残存3行が一括書き戻されること');
+
+// 11.1.2 複数アルバム一括削除テスト
+deleteMockSheetData = [
+  ['CD番号', 'アルバムアーティスト名', 'アルバム名', 'アーティスト名', 'トラック番号', 'トラック名', 'リリース日', 'アルバムアートURL'],
+  [1, 'Official髭男dism', 'Traveler', 'Official髭男dism', 1, 'Pretender', '2019-10-09', ''],
+  [1, 'BUMP OF CHICKEN', 'jupiter', 'BUMP OF CHICKEN', 1, '天体観測', '2002-02-20', ''],
+  [1, 'King Gnu', 'CEREMONY', 'King Gnu', 1, "'=cmd|' /C calc'", '2020-01-15', '']
+];
+const delResult2 = deleteSheetService.deleteAlbumsBatch([
+  { albumArtist: 'Official髭男dism', albumName: 'Traveler' },
+  { albumArtist: 'BUMP OF CHICKEN', albumName: 'jupiter' }
+]);
+assert(delResult2.deletedAlbumCount === 2, 'SheetService.deleteAlbumsBatch: 2件のアルバムが一括削除されること');
+assert(delResult2.deletedTrackCount === 2, 'SheetService.deleteAlbumsBatch: 2件のトラックが一括削除されること');
+assert(delResult2.remainingRowCount === 1, 'SheetService.deleteAlbumsBatch: 残存トラック数が 1 であること');
+const remainingKingGnu = deleteSetValuesCalledWith[0];
+assert(remainingKingGnu[1] === 'King Gnu' && remainingKingGnu[5] === "'=cmd|' /C calc'", 'SheetService.deleteAlbumsBatch: 残存行の数式インジェクション保護シングルクォートが維持されること');
+
+// 11.1.3 全行削除（残存0行境界値）テスト
+deleteMockSheetData = [
+  ['CD番号', 'アルバムアーティスト名', 'アルバム名', 'アーティスト名', 'トラック番号', 'トラック名', 'リリース日', 'アルバムアートURL'],
+  [1, 'King Gnu', 'CEREMONY', 'King Gnu', 1, 'Track 1', '2020-01-15', '']
+];
+deleteSetValuesCalledWith = null;
+const delResultAll = deleteSheetService.deleteAlbumsBatch([
+  { albumArtist: 'King Gnu', albumName: 'CEREMONY' }
+]);
+assert(delResultAll.deletedAlbumCount === 1, '全行削除: 削除アルバム数 1');
+assert(delResultAll.deletedTrackCount === 1, '全行削除: 削除トラック数 1');
+assert(delResultAll.remainingRowCount === 0, '全行削除: remainingRowCount === 0');
+assert(deleteSetValuesCalledWith === null, '全行削除: 残存0行時は setValues([]) が呼び出されずヘッダーのみ保護されること');
+
+// 11.1.4 lastRow < 2 (データなし) 境界値テスト
+deleteMockSheetData = [
+  ['CD番号', 'アルバムアーティスト名', 'アルバム名', 'アーティスト名', 'トラック番号', 'トラック名', 'リリース日', 'アルバムアートURL']
+];
+const delResultEmpty = deleteSheetService.deleteAlbumsBatch([
+  { albumArtist: 'A', albumName: 'B' }
+]);
+assert(delResultEmpty.deletedAlbumCount === 0 && delResultEmpty.remainingRowCount === 0, 'lastRow < 2 時は安全に空結果オブジェクトが返ること');
+
+// 11.1.5 存在しないアルバム指定テスト
+deleteMockSheetData = [
+  ['CD番号', 'アルバムアーティスト名', 'アルバム名', 'アーティスト名', 'トラック番号', 'トラック名', 'リリース日', 'アルバムアートURL'],
+  [1, 'Existing', 'Album', 'Existing', 1, 'Song', '2020', '']
+];
+const delResultNotFound = deleteSheetService.deleteAlbumsBatch([
+  { albumArtist: 'NonExistent', albumName: 'NonExistent' }
+]);
+assert(delResultNotFound.deletedAlbumCount === 0 && delResultNotFound.deletedTrackCount === 0, '存在しないアルバム指定時は削除件数0で安全に終了すること');
+assert(delResultNotFound.remainingRowCount === 1, '存在しないアルバム指定時は既存行がそのまま保持されること');
+
+// 11.1.6 排他ロック取得失敗（タイムアウト）テスト
+global.LockService = {
+  getScriptLock: () => ({
+    tryLock: (timeout) => false,
+    releaseLock: () => {}
+  })
+};
+assertThrows(
+  () => deleteSheetService.deleteAlbumsBatch([{ albumArtist: 'A', albumName: 'B' }]),
+  'LOCK_TIMEOUT',
+  'SheetService.deleteAlbumsBatch: ロック取得失敗時に LOCK_TIMEOUT 例外が送出されること'
+);
+
+// 11.2 MusicService.deleteAlbums & validateDeletePayload_ 単体テスト
+console.log('\n[11.2] MusicService.deleteAlbums & validateDeletePayload_ のテスト');
+global.LockService = {
+  getScriptLock: () => ({
+    tryLock: (timeout) => true,
+    releaseLock: () => {}
+  })
+};
+const mockSheetServiceForMusic = {
+  deleteAlbumsBatch: (keys) => ({
+    deletedAlbumCount: keys.length,
+    deletedTrackCount: keys.length * 5,
+    deletedAlbums: keys,
+    remainingRowCount: 10
+  })
+};
+const delMusicService = new MusicService(config, mockSheetServiceForMusic, driveService, itunesService);
+
+// 正常系
+const validDelRes = delMusicService.deleteAlbums({
+  albums: [
+    { albumArtist: 'Artist A', albumName: 'Album A' },
+    { albumArtist: 'Artist B', albumName: 'Album B' }
+  ]
+});
+assert(validDelRes.deletedAlbumCount === 2, 'MusicService.deleteAlbums: 正常系委譲成功');
+
+// 異常系バリデーションテスト
+assertThrows(() => delMusicService.deleteAlbums(null), 'VALIDATION_FAILED', 'deleteAlbums: payload null での例外');
+assertThrows(() => delMusicService.deleteAlbums('invalid'), 'VALIDATION_FAILED', 'deleteAlbums: payload 文字列での例外');
+assertThrows(() => delMusicService.deleteAlbums([]), 'VALIDATION_FAILED', 'deleteAlbums: payload 配列での例外');
+assertThrows(() => delMusicService.deleteAlbums({}), 'VALIDATION_FAILED', 'deleteAlbums: albums プロパティなしでの例外');
+assertThrows(() => delMusicService.deleteAlbums({ albums: [] }), 'VALIDATION_FAILED', 'deleteAlbums: albums 空配列での例外');
+assertThrows(() => delMusicService.deleteAlbums({ albums: [{ albumArtist: '', albumName: 'Album' }] }), 'VALIDATION_FAILED', 'deleteAlbums: albumArtist 空文字での例外');
+assertThrows(() => delMusicService.deleteAlbums({ albums: [{ albumArtist: 'Artist', albumName: '   ' }] }), 'VALIDATION_FAILED', 'deleteAlbums: albumName 空白のみでの例外');
+assertThrows(() => delMusicService.deleteAlbums({ albums: [{ albumArtist: 'A'.repeat(256), albumName: 'Album' }] }), 'VALIDATION_FAILED', 'deleteAlbums: albumArtist 255文字超過での例外');
+assertThrows(() => delMusicService.deleteAlbums({ albums: [{ albumArtist: 'A', albumName: 'B'.repeat(256) }] }), 'VALIDATION_FAILED', 'deleteAlbums: albumName 255文字超過での例外');
+
+// 11.3 Code.apiDeleteAlbumsBatch RPC テスト
+console.log('\n[11.3] Code.apiDeleteAlbumsBatch RPC テスト');
+assert(typeof Code.apiDeleteAlbumsBatch === 'function', 'Code.apiDeleteAlbumsBatch が公開されていること');
+
+// RPC 正常系
+const rpcDelOk = Code.apiDeleteAlbumsBatch({
+  albums: [{ albumArtist: 'Artist', albumName: 'Album' }]
+});
+assert(rpcDelOk && rpcDelOk.success === true && rpcDelOk.data, 'Code.apiDeleteAlbumsBatch: 正常系 (success: true)');
+
+// RPC 異常系
+const rpcDelNg = Code.apiDeleteAlbumsBatch(null);
+assert(rpcDelNg && rpcDelNg.success === false && rpcDelNg.code === 'VALIDATION_FAILED', 'Code.apiDeleteAlbumsBatch: 異常系 (VALIDATION_FAILED)');
+
+// 11.4 Store.deleteAlbumsFromCatalog キャッシュ差分同期テスト
+console.log('\n[11.4] Store.deleteAlbumsFromCatalog テスト');
+const delTestStore = new Store();
+delTestStore.setTracks([
+  { cdNumber: 1, albumArtist: 'Artist 1', albumName: 'Album 1A', trackName: 'Song 1', trackNumber: 1 },
+  { cdNumber: 1, albumArtist: 'Artist 1', albumName: 'Album 1B', trackName: 'Song 2', trackNumber: 1 },
+  { cdNumber: 1, albumArtist: 'Artist 2', albumName: 'Album 2A', trackName: 'Song 3', trackNumber: 1 }
+]);
+delTestStore.state.isAlbumSelectMode = true;
+delTestStore.state.selectedAlbumKeysForDeletion.add('Artist 1:::Album 1A');
+
+delTestStore.deleteAlbumsFromCatalog([{ albumArtist: 'Artist 1', albumName: 'Album 1A' }]);
+
+assert(delTestStore.state.allTracks.length === 2, 'Store.deleteAlbumsFromCatalog: 該当アルバムのトラックが除外されること');
+assert(!delTestStore.state.musicCatalog['Artist 1'].albums['Album 1A'], 'Store.deleteAlbumsFromCatalog: カタログツリーから該当アルバムが消去されること');
+assert(delTestStore.state.musicCatalog['Artist 1'].albumCount === 1, 'Store.deleteAlbumsFromCatalog: アルバム件数が減算されること');
+assert(delTestStore.state.isAlbumSelectMode === false, 'Store.deleteAlbumsFromCatalog: isAlbumSelectMode が false にリセットされること');
+assert(delTestStore.state.selectedAlbumKeysForDeletion.size === 0, 'Store.deleteAlbumsFromCatalog: selectedAlbumKeysForDeletion がクリアされること');
+
+// アーティスト配下の全アルバム削除時、アーティストが消滅すること
+delTestStore.deleteAlbumsFromCatalog([{ albumArtist: 'Artist 1', albumName: 'Album 1B' }]);
+assert(!delTestStore.state.musicCatalog['Artist 1'], 'Store.deleteAlbumsFromCatalog: 全アルバム削除時にアーティストがカタログから消滅すること');
+assert(!delTestStore.state.artistList.includes('Artist 1'), 'Store.deleteAlbumsFromCatalog: artistList からアーティストが除外されること');
+
+// 11.5 ApiClient.prototype.deleteAlbumsBatch メソッド存在確認
+console.log('\n[11.5] ApiClient.deleteAlbumsBatch テスト');
+const apiClientContent = fs.readFileSync(path.join(__dirname, '../src/ScriptsApiClient.html'), 'utf8');
+assert(apiClientContent.includes('deleteAlbumsBatch(albums)'), 'ApiClient に deleteAlbumsBatch メソッドが存在すること');
+assert(apiClientContent.includes("'apiDeleteAlbumsBatch'"), 'ApiClient.deleteAlbumsBatch が apiDeleteAlbumsBatch を呼び出すこと');
+
+// 11.6 UIコンポーネントおよび index.html バンドル検証
+console.log('\n[11.6] UIコンポーネントおよび index.html バンドル検証');
+const indexHtmlLatest = fs.readFileSync(path.join(srcDir, 'index.html'), 'utf8');
+assert(indexHtmlLatest.includes('id="modal-delete-confirm"'), 'src/index.html に modal-delete-confirm が存在する (TASK-005)');
+assert(indexHtmlLatest.includes('id="btn-toggle-album-select"'), 'src/index.html に btn-toggle-album-select が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="album-selection-toolbar"'), 'src/index.html に album-selection-toolbar が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="btn-select-all-albums"'), 'src/index.html に btn-select-all-albums が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="btn-deselect-all-albums"'), 'src/index.html に btn-deselect-all-albums が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="selected-album-count-badge"'), 'src/index.html に selected-album-count-badge が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="btn-delete-selected-albums"'), 'src/index.html に btn-delete-selected-albums が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="btn-delete-album"'), 'src/index.html に btn-delete-album が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="btn-confirm-execute-delete"'), 'src/index.html に btn-confirm-execute-delete が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="delete-confirm-track-warning"'), 'src/index.html に delete-confirm-track-warning が存在する (TASK-004)');
+assert(indexHtmlLatest.includes('id="delete-confirm-album-list"'), 'src/index.html に delete-confirm-album-list が存在する (TASK-004)');
+
+console.log('\n[11.7] アルバム一括削除 不具合修正検証 (BUG-001, BUG-002, BUG-003)');
+const scriptsAppHtmlForBugCheck = fs.readFileSync(path.join(srcDir, 'ScriptsApp.html'), 'utf8');
+
+// BUG-001
+assert(
+  scriptsAppHtmlForBugCheck.includes('this.store.state.isAlbumSelectMode = false;') &&
+  scriptsAppHtmlForBugCheck.includes('this.store.state.selectedAlbumKeysForDeletion.clear();') &&
+  scriptsAppHtmlForBugCheck.includes('this.toggleAlbumSelectMode(false);'),
+  'selectSearchResultItem でアルバム選択モードと選択キーSetが確実にリセットされること (BUG-001)'
+);
+
+// BUG-002
+assert(
+  scriptsAppHtmlForBugCheck.includes('if (this.isDeletingAlbums)') &&
+  scriptsAppHtmlForBugCheck.includes('this.isDeletingAlbums = true;') &&
+  scriptsAppHtmlForBugCheck.includes('btnCancel.disabled = true;') &&
+  scriptsAppHtmlForBugCheck.includes('btnClose.disabled = true;'),
+  'closeDeleteConfirmModal の通信待機中クローズ抑止およびボタン disabled 化が実装されていること (BUG-002)'
+);
+
+// BUG-003
+assert(
+  scriptsAppHtmlForBugCheck.includes("btnToggleSelect.setAttribute('aria-pressed', 'true');") &&
+  scriptsAppHtmlForBugCheck.includes("btnToggleSelect.setAttribute('aria-pressed', 'false');"),
+  'アルバム選択切替ボタンの aria-pressed トグル整合性が実装されていること (BUG-003)'
+);
+
 console.log('\n==================================================');
 console.log(`テスト結果サマリー: 成功 = ${passCount}, 失敗 = ${failCount}`);
 console.log('==================================================');

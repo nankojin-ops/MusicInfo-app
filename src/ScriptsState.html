@@ -35,7 +35,11 @@ class Store {
 
       // 画像拡大  
       zoomImageUrl: null,  
-      zoomImageTitle: ''  
+      zoomImageTitle: '',
+
+      // アルバム複数選択・一括削除
+      isAlbumSelectMode: false,
+      selectedAlbumKeysForDeletion: new Set()
     };  
   }  
 
@@ -353,6 +357,36 @@ class Store {
     // 4. アルバム名やアーティスト名が改名された場合でも選択中状態を新名称に自動追従  
     this.state.selectedArtist = String(newAlbumMeta.albumArtist).trim();  
     this.state.selectedAlbum = String(newAlbumMeta.albumName).trim();  
+  }  
+
+  /**  
+   * 削除されたアルバム群をキャッシュから一括除外し、カタログツリーを再構築  
+   * @param {Array<{ albumArtist: string, albumName: string }>} deletedKeys  
+   */  
+  deleteAlbumsFromCatalog(deletedKeys) {  
+    if (!deletedKeys || !Array.isArray(deletedKeys) || deletedKeys.length === 0) {  
+      this.state.selectedAlbumKeysForDeletion.clear();  
+      this.state.isAlbumSelectMode = false;  
+      return;  
+    }  
+
+    const targetKeySet = new Set(  
+      deletedKeys.map(k => `${String(k.albumArtist || '').trim()}:::${String(k.albumName || '').trim()}`)  
+    );  
+
+    // 1. 全トラック配列から該当アルバムの行を除外  
+    this.state.allTracks = this.state.allTracks.filter(t => {  
+      if (!t || typeof t !== 'object') return false;  
+      const key = `${String(t.albumArtist || '').trim()}:::${String(t.albumName || '').trim()}`;  
+      return !targetKeySet.has(key);  
+    });  
+
+    // 2. カタログツリーの再構築（アーティスト一覧・ソート順・検索インデックスの完全更新）  
+    this.buildCatalog();  
+
+    // 3. 選択状態のクリア  
+    this.state.selectedAlbumKeysForDeletion.clear();  
+    this.state.isAlbumSelectMode = false;  
   }  
 }  
 
