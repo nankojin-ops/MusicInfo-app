@@ -466,45 +466,67 @@ class MusicBrainzService {
   }
 
   /**
-   * CacheService と Utilities.sleep を用いて前回リクエストから MIN_INTERVAL_MS (1100ms) 以上の間隔を確保
+   * CacheService, Utilities.sleep, および LockService を用いてクリティカルセクションを保護し、
+   * 前回リクエストから MIN_INTERVAL_MS (1100ms) 以上の間隔を確実に直列化して確保
    */
   enforceRateLimit_() {
     const mbConst = (Config && Config.CONSTANTS && Config.CONSTANTS.MUSICBRAINZ)
       ? Config.CONSTANTS.MUSICBRAINZ
-      : { MIN_INTERVAL_MS: 1100, CACHE_KEY_LAST_REQ: 'MUSICBRAINZ_LAST_REQUEST_TS' };
+      : { MIN_INTERVAL_MS: 1100, CACHE_KEY_LAST_REQ: 'MUSICBRAINZ_LAST_REQUEST_TS', LOCK_TIMEOUT_MS: 10000 };
 
     const minInterval = mbConst.MIN_INTERVAL_MS || 1100;
     const cacheKey = mbConst.CACHE_KEY_LAST_REQ || 'MUSICBRAINZ_LAST_REQUEST_TS';
-    const now = Date.now();
-    let lastTs = 0;
+    const lockTimeout = mbConst.LOCK_TIMEOUT_MS || 10000;
 
-    if (typeof CacheService !== 'undefined' && CacheService && typeof CacheService.getScriptCache === 'function') {
+    const lock = (typeof LockService !== 'undefined' && LockService.getScriptLock)
+      ? LockService.getScriptLock()
+      : null;
+
+    let hasLock = false;
+    if (lock) {
       try {
-        const scriptCache = CacheService.getScriptCache();
-        if (scriptCache && typeof scriptCache.get === 'function') {
-          const cached = scriptCache.get(cacheKey);
-          if (cached) {
-            lastTs = Number(cached) || 0;
-          }
+        hasLock = lock.tryLock(lockTimeout);
+        if (!hasLock) {
+          console.warn('MusicBrainz レート制御の排他ロック獲得待機がタイムアウトしました (続行します)');
         }
       } catch (e) {
-        // キャッシュ読み取り失敗時はメモリ上のタイムスタンプを使用
+        console.warn('LockService エラー:', e);
       }
     }
 
-    if (!lastTs && this.lastRequestTs_) {
-      lastTs = this.lastRequestTs_;
-    }
+    try {
+      const now = Date.now();
+      let lastTs = 0;
 
-    if (lastTs > 0) {
-      const elapsed = now - lastTs;
-      if (elapsed >= 0 && elapsed < minInterval) {
-        const waitMs = minInterval - elapsed;
-        this.sleep_(waitMs);
+      if (typeof CacheService !== 'undefined' && CacheService && typeof CacheService.getScriptCache === 'function') {
+        try {
+          const scriptCache = CacheService.getScriptCache();
+          if (scriptCache && typeof scriptCache.get === 'function') {
+            const cached = scriptCache.get(cacheKey);
+            if (cached) lastTs = Number(cached) || 0;
+          }
+        } catch (e) {}
+      }
+
+      if (!lastTs && this.lastRequestTs_) {
+        lastTs = this.lastRequestTs_;
+      }
+
+      if (lastTs > 0) {
+        const elapsed = now - lastTs;
+        if (elapsed >= 0 && elapsed < minInterval) {
+          this.sleep_(minInterval - elapsed);
+        }
+      }
+
+      this.recordRequestTimestamp_();
+    } finally {
+      if (lock && hasLock) {
+        try {
+          lock.releaseLock();
+        } catch (e) {}
       }
     }
-
-    this.recordRequestTimestamp_();
   }
 
   /**

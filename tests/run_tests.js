@@ -1209,6 +1209,14 @@ assertThrows(
   'ロック取得タイムアウト時の LOCK_TIMEOUT 例外'
 );
 
+// LockService モックを通常状態に復帰
+global.LockService = {
+  getScriptLock: () => ({
+    tryLock: (timeout) => true,
+    releaseLock: () => {}
+  })
+};
+
 // 6.5. SheetService.insertTracksBatch 部分日付 (YYYY-MM / YYYY) のプレーンテキスト書式保護検証 (Q-5)
 let capturedNumberFormat = null;
 let capturedInsertBatchRows = null;
@@ -1812,6 +1820,470 @@ assert(
   scriptsAppHtmlForBugCheck.includes("btnToggleSelect.setAttribute('aria-pressed', 'false');"),
   'アルバム選択切替ボタンの aria-pressed トグル整合性が実装されていること (BUG-003)'
 );
+
+// --------------------------------------------------
+// [12] コードレビュー指摘事項改善（信頼性・堅牢性・保守性向上）テスト
+// --------------------------------------------------
+console.log('\n[12] コードレビュー指摘事項改善（信頼性・堅牢性・保守性向上）テスト (TASK-001〜TASK-010)');
+
+// [12.1] Config クラスの改修検証 (TASK-001)
+console.log('\n[12.1] Config クラスの改修検証 (TASK-001)');
+{
+  // 未設定時: false
+  global.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperties: () => ({
+        SPREADSHEET_ID: 'ss-123',
+        DRIVE_FOLDER_ID: 'folder-123'
+      })
+    })
+  };
+  const cfgDefault = new Config();
+  assert(cfgDefault.isEmbeddingAllowed() === false, 'Config: 未設定時は isEmbeddingAllowed() === false (Secure by Default)');
+
+  // 'false' 設定時: false
+  global.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperties: () => ({
+        SPREADSHEET_ID: 'ss-123',
+        DRIVE_FOLDER_ID: 'folder-123',
+        ALLOW_EMBEDDING: 'false'
+      })
+    })
+  };
+  const cfgFalse = new Config();
+  assert(cfgFalse.isEmbeddingAllowed() === false, 'Config: ALLOW_EMBEDDING="false" 時に false');
+
+  // 'true' 設定時: true (大文字小文字無視)
+  global.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperties: () => ({
+        SPREADSHEET_ID: 'ss-123',
+        DRIVE_FOLDER_ID: 'folder-123',
+        ALLOW_EMBEDDING: ' TRUE '
+      })
+    })
+  };
+  const cfgTrue = new Config();
+  assert(cfgTrue.isEmbeddingAllowed() === true, 'Config: ALLOW_EMBEDDING=" TRUE " 時に true');
+
+  // '1' 設定時: true
+  global.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperties: () => ({
+        SPREADSHEET_ID: 'ss-123',
+        DRIVE_FOLDER_ID: 'folder-123',
+        ALLOW_EMBEDDING: '1'
+      })
+    })
+  };
+  const cfgOne = new Config();
+  assert(cfgOne.isEmbeddingAllowed() === true, 'Config: ALLOW_EMBEDDING="1" 時に true');
+
+  // 排他制御定数の検証
+  assert(Config.CONSTANTS.LOCK_TIMEOUT_MS === 30000, 'Config.CONSTANTS.LOCK_TIMEOUT_MS === 30000');
+  assert(Config.CONSTANTS.MUSICBRAINZ.LOCK_TIMEOUT_MS === 10000, 'Config.CONSTANTS.MUSICBRAINZ.LOCK_TIMEOUT_MS === 10000');
+}
+
+// [12.2] Code.js doGet の XFrameOptionsMode Secure by Default 検証 (TASK-002)
+console.log('\n[12.2] Code.js doGet の XFrameOptionsMode Secure by Default 検証 (TASK-002)');
+{
+  const CodeModule = require('../src/Code');
+  
+  // モック HtmlService
+  let appliedFrameMode = null;
+  const mockHtmlOutput = {
+    setTitle: function() { return this; },
+    addMetaTag: function() { return this; },
+    setXFrameOptionsMode: function(mode) {
+      appliedFrameMode = mode;
+      return this;
+    }
+  };
+
+  global.HtmlService = {
+    createHtmlOutputFromFile: () => mockHtmlOutput,
+    XFrameOptionsMode: {
+      DEFAULT: 'DEFAULT',
+      ALLOWALL: 'ALLOWALL'
+    }
+  };
+
+  // 1. デフォルト (ALLOW_EMBEDDING なし) -> DEFAULT
+  global.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperties: () => ({
+        SPREADSHEET_ID: 'ss-123',
+        DRIVE_FOLDER_ID: 'folder-123'
+      })
+    })
+  };
+  appliedFrameMode = null;
+  CodeModule.doGet({});
+  assert(appliedFrameMode === 'DEFAULT', 'doGet: デフォルト時に XFrameOptionsMode.DEFAULT が適用されること (Secure by Default)');
+
+  // 2. ALLOW_EMBEDDING = 'true' -> ALLOWALL
+  global.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperties: () => ({
+        SPREADSHEET_ID: 'ss-123',
+        DRIVE_FOLDER_ID: 'folder-123',
+        ALLOW_EMBEDDING: 'true'
+      })
+    })
+  };
+  appliedFrameMode = null;
+  CodeModule.doGet({});
+  assert(appliedFrameMode === 'ALLOWALL', 'doGet: ALLOW_EMBEDDING="true" 時に XFrameOptionsMode.ALLOWALL が適用されること');
+}
+
+// [12.3] ItunesService.lookupAlbumSongs の JSON.parse 例外保護検証 (TASK-003)
+console.log('\n[12.3] ItunesService.lookupAlbumSongs の JSON.parse 例外保護検証 (TASK-003)');
+{
+  const testItunesService = new ItunesService();
+  
+  // 破損レスポンス（HTMLエラーページ）のシミュレート
+  global.UrlFetchApp = {
+    fetch: () => ({
+      getResponseCode: () => 200,
+      getContentText: () => '<html><body>502 Bad Gateway</body></html>'
+    })
+  };
+
+  assertThrows(
+    () => testItunesService.lookupAlbumSongs(123456),
+    'ITUNES_API_PARSE_ERROR',
+    'ItunesService.lookupAlbumSongs: 外部APIからの不正HTML返却時に ITUNES_API_PARSE_ERROR が送出されること'
+  );
+}
+
+// [12.4] DriveService.downloadAndSaveArtwork の動的MIME・拡張子判定検証 (TASK-004)
+console.log('\n[12.4] DriveService.downloadAndSaveArtwork の動的MIME・拡張子判定検証 (TASK-004)');
+{
+  const testDriveService = new DriveService(config);
+  
+  const testMimeCases = [
+    { mime: 'image/png', expectedExt: 'png', expectedMime: 'image/png' },
+    { mime: 'image/webp', expectedExt: 'webp', expectedMime: 'image/webp' },
+    { mime: 'image/jpeg', expectedExt: 'jpg', expectedMime: 'image/jpeg' },
+    { mime: 'image/png; charset=utf-8', expectedExt: 'png', expectedMime: 'image/png' },
+    { mime: 'application/octet-stream', expectedExt: 'jpg', expectedMime: 'image/jpeg' }
+  ];
+
+  for (const tc of testMimeCases) {
+    let capturedName = '';
+    let capturedType = '';
+
+    global.DriveApp = {
+      getFolderById: () => ({
+        createFile: (blob) => {
+          capturedName = blob.getName();
+          return {
+            getId: () => 'mock-file-id',
+            setSharing: () => {}
+          };
+        }
+      }),
+      Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' },
+      Permission: { VIEW: 'VIEW' }
+    };
+
+    global.UrlFetchApp = {
+      fetch: () => ({
+        getResponseCode: () => 200,
+        getBlob: () => {
+          let bName = '';
+          let bType = tc.mime;
+          return {
+            setName: (n) => { bName = n; },
+            getName: () => bName,
+            setContentType: (t) => { capturedType = t; },
+            getContentType: () => bType
+          };
+        }
+      })
+    };
+
+    testDriveService.downloadAndSaveArtwork('https://example.com/cover', 'TestAlbum');
+    assert(
+      capturedName.endsWith('.' + tc.expectedExt),
+      `downloadAndSaveArtwork: MIME [${tc.mime}] に対し拡張子 [.${tc.expectedExt}] が付与されること (実際: ${capturedName})`
+    );
+    assert(
+      capturedType === tc.expectedMime,
+      `downloadAndSaveArtwork: MIME [${tc.mime}] に対し Content-Type [${tc.expectedMime}] が設定されること`
+    );
+  }
+}
+
+// [12.5] SheetService.insertTracksBatch & appendSingleTrack 排他制御検証 (TASK-005)
+console.log('\n[12.5] SheetService.insertTracksBatch & appendSingleTrack 排他制御検証 (TASK-005)');
+{
+  const testSheetService = new SheetService(config);
+
+  // 1. insertTracksBatch 正常系: ロック獲得および解放
+  let insertLockReleased = false;
+  let insertLockRequestedTimeout = 0;
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: (timeout) => {
+        insertLockRequestedTimeout = timeout;
+        return true;
+      },
+      releaseLock: () => {
+        insertLockReleased = true;
+      }
+    })
+  };
+  global.SpreadsheetApp = {
+    openById: () => ({
+      getSheetByName: () => ({
+        getLastRow: () => 1,
+        getRange: () => ({
+          setNumberFormat: () => {},
+          setValues: () => {}
+        })
+      })
+    }),
+    flush: () => {}
+  };
+
+  testSheetService.insertTracksBatch(
+    [{ cdNumber: 1, trackNumber: 1, trackName: 'Song1', trackArtist: 'Artist1' }],
+    { albumName: 'Album1', albumArtist: 'Artist1', releaseDate: '2024-01-01' },
+    'https://example.com/art.jpg'
+  );
+  assert(insertLockRequestedTimeout === 30000, 'insertTracksBatch: ロック待機時間が 30000ms であること');
+  assert(insertLockReleased === true, 'insertTracksBatch: 正常終了時に releaseLock が呼ばれること');
+
+  // 2. insertTracksBatch 異常系: ロックタイムアウト
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: () => false,
+      releaseLock: () => {}
+    })
+  };
+  assertThrows(
+    () => testSheetService.insertTracksBatch(
+      [{ cdNumber: 1, trackNumber: 1, trackName: 'Song1', trackArtist: 'Artist1' }],
+      { albumName: 'Album1', albumArtist: 'Artist1', releaseDate: '2024-01-01' },
+      'https://example.com/art.jpg'
+    ),
+    'LOCK_TIMEOUT',
+    'insertTracksBatch: ロックタイムアウト時に LOCK_TIMEOUT 例外が送出されること'
+  );
+
+  // 3. appendSingleTrack 正常系: ロック獲得および解放
+  let appendLockReleased = false;
+  let appendLockRequestedTimeout = 0;
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: (timeout) => {
+        appendLockRequestedTimeout = timeout;
+        return true;
+      },
+      releaseLock: () => {
+        appendLockReleased = true;
+      }
+    })
+  };
+  global.SpreadsheetApp = {
+    openById: () => ({
+      getSheetByName: () => ({
+        getLastRow: () => 1,
+        appendRow: () => {}
+      })
+    }),
+    flush: () => {}
+  };
+
+  testSheetService.appendSingleTrack({
+    cdNumber: 1,
+    trackNumber: 1,
+    trackName: 'Single Song',
+    albumArtist: 'Single Artist',
+    albumName: 'Single Album',
+    trackArtist: 'Single Artist',
+    releaseDate: '2024-01-01',
+    artworkUrl: 'https://example.com/art.jpg'
+  });
+  assert(appendLockRequestedTimeout === 30000, 'appendSingleTrack: ロック待機時間が 30000ms であること');
+  assert(appendLockReleased === true, 'appendSingleTrack: 正常終了時に releaseLock が呼ばれること');
+
+  // 4. appendSingleTrack 異常系: ロックタイムアウト
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: () => false,
+      releaseLock: () => {}
+    })
+  };
+  assertThrows(
+    () => testSheetService.appendSingleTrack({
+      cdNumber: 1,
+      trackNumber: 1,
+      trackName: 'Single Song',
+      albumArtist: 'Single Artist',
+      albumName: 'Single Album',
+      trackArtist: 'Single Artist',
+      releaseDate: '2024-01-01',
+      artworkUrl: 'https://example.com/art.jpg'
+    }),
+    'LOCK_TIMEOUT',
+    'appendSingleTrack: ロックタイムアウト時に LOCK_TIMEOUT 例外が送出されること'
+  );
+
+  // 安全な状態に復帰
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: () => true,
+      releaseLock: () => {}
+    })
+  };
+}
+
+// [12.6] MusicBrainzService.enforceRateLimit_ 排他制御検証 (TASK-006)
+console.log('\n[12.6] MusicBrainzService.enforceRateLimit_ 排他制御検証 (TASK-006)');
+{
+  const mbService = new MusicBrainzService(config);
+
+  let mbLockAcquired = false;
+  let mbLockReleased = false;
+  let mbLockTimeoutRequested = 0;
+
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: (timeout) => {
+        mbLockTimeoutRequested = timeout;
+        mbLockAcquired = true;
+        return true;
+      },
+      releaseLock: () => {
+        mbLockReleased = true;
+      }
+    })
+  };
+
+  global.CacheService = {
+    getScriptCache: () => ({
+      get: () => null,
+      put: () => {}
+    })
+  };
+
+  mbService.enforceRateLimit_();
+  assert(mbLockAcquired === true, 'enforceRateLimit_: LockService.getScriptLock().tryLock が呼び出されること');
+  assert(mbLockTimeoutRequested === 10000, 'enforceRateLimit_: ロックタイムアウトが 10000ms であること');
+  assert(mbLockReleased === true, 'enforceRateLimit_: 正常終了時に releaseLock が呼ばれること');
+
+  // ロックタイムアウト時でも可用性優先で例外を投げずに続行すること
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: () => false,
+      releaseLock: () => {}
+    })
+  };
+  let errorThrown = false;
+  try {
+    mbService.enforceRateLimit_();
+  } catch (e) {
+    errorThrown = true;
+  }
+  assert(errorThrown === false, 'enforceRateLimit_: ロック獲得タイムアウト時でも可用性優先で続行し例外を投げないこと');
+
+  // モック復帰
+  global.LockService = {
+    getScriptLock: () => ({
+      tryLock: () => true,
+      releaseLock: () => {}
+    })
+  };
+}
+
+// [12.7] Utils.highlightMatch 元文字列直接マッチング方式検証 (TASK-007)
+console.log('\n[12.7] Utils.highlightMatch 元文字列直接マッチング方式検証 (TASK-007)');
+{
+  // 1. カタカナ検索 -> ひらがな生文字列にマッチ
+  const html1 = Utils.highlightMatch('あいうえお', ['アイウ']);
+  assert(
+    html1.includes('<mark class="bg-indigo-500/30 text-indigo-200 rounded px-0.5 font-bold">あいう</mark>えお'),
+    `highlightMatch: カタカナ「アイウ」検索で生テキスト「あいうえお」の一致部分がハイライトされること (実際: ${html1})`
+  );
+
+  // 2. ひらがな検索 -> カタカナ生文字列にマッチ
+  const html2 = Utils.highlightMatch('アイウエオ', ['あいう']);
+  assert(
+    html2.includes('<mark class="bg-indigo-500/30 text-indigo-200 rounded px-0.5 font-bold">アイウ</mark>エオ'),
+    `highlightMatch: ひらがな「あいう」検索で生テキスト「アイウエオ」の一致部分がハイライトされること (実際: ${html2})`
+  );
+
+  // 3. 全角記号・英数・絵文字混在時のハイライトズレなし検証
+  const complexText = 'Official髭男dism - Ｓｕｂｔｉｔｌｅ！ ✨ [2022]';
+  const html3 = Utils.highlightMatch(complexText, ['Subtitle']);
+  assert(
+    html3.includes('Ｓｕｂｔｉｔｌｅ'),
+    'highlightMatch: 全角英数や記号が混在してもハイライト位置が正しく維持されること'
+  );
+
+  // 4. XSS 特殊文字の無害化エスケープ
+  const maliciousText = '<script>alert("XSS")</script>&"\'';
+  const html4 = Utils.highlightMatch(maliciousText, ['alert']);
+  assert(!html4.includes('<script>'), 'highlightMatch: <script> タグが安全にエスケープされていること');
+  assert(html4.includes('&lt;script&gt;'), 'highlightMatch: &lt;script&gt; にエスケープされていること');
+  assert(html4.includes('&amp;&quot;&#039;'), 'highlightMatch: &, ", \' が安全にエスケープされていること');
+
+  // 5. 正規表現メタ文字が含まれる検索語のエスケープ安全性
+  const metaText = 'Album [Special (Edition) + Extra] {2024}';
+  const html5 = Utils.highlightMatch(metaText, ['[Special', '(Edition)+']);
+  assert(html5.includes('<mark'), 'highlightMatch: 正規表現特殊文字を含む検索語でもエラーにならずハイライトされること');
+
+  // 6. 重複・隣接トークンのマージ
+  const overlapText = 'abcdefg';
+  const html6 = Utils.highlightMatch(overlapText, ['abc', 'cde']);
+  assert(
+    html6.includes('<mark class="bg-indigo-500/30 text-indigo-200 rounded px-0.5 font-bold">abcde</mark>fg'),
+    `highlightMatch: 重複区間がマージされて1つのmarkタグになること (実際: ${html6})`
+  );
+}
+
+// [12.8] Utils.resizeImage & handleImageUpload 画像縮小連携検証 (TASK-007, TASK-008)
+console.log('\n[12.8] Utils.resizeImage & handleImageUpload 画像縮小連携検証 (TASK-007, TASK-008)');
+{
+  assert(typeof Utils.resizeImage === 'function', 'Utils.resizeImage が関数として定義されていること');
+
+  // Node.js 環境でのフォールバック動作
+  const mockFile = { name: 'test.jpg', size: 100, type: 'image/jpeg' };
+  const fallbackPromise = Utils.resizeImage(mockFile);
+  assert(fallbackPromise && typeof fallbackPromise.then === 'function', 'Utils.resizeImage: Promise (Thenable) を返却すること');
+  if (fallbackPromise && typeof fallbackPromise.catch === 'function') {
+    fallbackPromise.catch(() => {});
+  }
+
+  // ScriptsApp.html 内で resizeImage の呼び出しおよび image/jpeg の設定が存在することの静的検証
+  const scriptsAppHtml = fs.readFileSync(path.join(srcDir, 'ScriptsApp.html'), 'utf8');
+  assert(
+    scriptsAppHtml.includes('Utils.resizeImage(file'),
+    'ScriptsApp.html: handleImageUpload で Utils.resizeImage が呼び出されていること'
+  );
+  assert(
+    scriptsAppHtml.includes("uploadMimeType = headerMatch ? headerMatch[1].toLowerCase() : 'image/jpeg';"),
+    'ScriptsApp.html: リサイズ後の MIMEタイプとして動的判定または image/jpeg が設定されていること'
+  );
+}
+
+// [12.9] build.js 自動生成警告バナー検証 (TASK-009)
+console.log('\n[12.9] build.js 自動生成警告バナー検証 (TASK-009)');
+{
+  const indexHtmlContent = fs.readFileSync(path.join(srcDir, 'index.html'), 'utf8');
+  assert(
+    indexHtmlContent.startsWith('<!-- ========================================================================= -->'),
+    'src/index.html: 最冒頭に自動生成警告バナーが存在すること (TASK-009)'
+  );
+  assert(
+    indexHtmlContent.includes('WARNING: このファイルは build.js によって自動生成されたファイルです。'),
+    'src/index.html: 自動生成物（直接編集禁止）の警告文が含まれること'
+  );
+}
+
 
 console.log('\n==================================================');
 console.log(`テスト結果サマリー: 成功 = ${passCount}, 失敗 = ${failCount}`);

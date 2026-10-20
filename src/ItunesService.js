@@ -111,7 +111,14 @@ class ItunesService {
       throw err;
     }
 
-    const data = JSON.parse(response.getContentText());
+    let data;
+    try {
+      data = JSON.parse(response.getContentText());
+    } catch (parseErr) {
+      const err = new Error('iTunes Lookup APIのレスポンスJSON解析に失敗しました');
+      err.code = 'ITUNES_API_PARSE_ERROR';
+      throw err;
+    }
     const results = data.results || [];
 
     if (results.length === 0) {

@@ -306,6 +306,17 @@ if (existingCatcherRegex.test(template)) {
   template = template.replace('</head>', `${globalErrorScript.trim()}\n</head>`);
 }
 
+// 4. 自動生成物警告バナーの付与（先祖返り・直接編集の抑止）
+const banner = `<!-- ========================================================================= -->
+<!-- WARNING: このファイルは build.js によって自動生成されたファイルです。     -->
+<!-- 直接編集しないでください。編集は index.template.html または部品ファイルへ -->
+<!-- ========================================================================= -->\n`;
+
+let outputHtml = template;
+if (!outputHtml.startsWith('<!-- ========================================================================= -->')) {
+  outputHtml = banner + outputHtml;
+}
+
 // 出力ファイル書き込み
-fs.writeFileSync(OUTPUT_FILE, template, 'utf8');
-console.log(`Successfully built bundled ${OUTPUT_FILE} (${template.length} characters)`);
+fs.writeFileSync(OUTPUT_FILE, outputHtml, 'utf8');
+console.log(`Successfully built bundled ${OUTPUT_FILE} (${outputHtml.length} characters)`);

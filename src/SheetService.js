@@ -103,26 +103,46 @@ class SheetService {
       return 0;
     }
 
-    const rows = tracks.map((t) => [
-      Number(t.cdNumber) || 1,
-      this.escapeFormula_(albumMeta.albumArtist),
-      this.escapeFormula_(albumMeta.albumName),
-      this.escapeFormula_(t.trackArtist || albumMeta.albumArtist),
-      Number(t.trackNumber) || 1,
-      this.escapeFormula_(t.trackName),
-      this.escapeFormula_(albumMeta.releaseDate),
-      this.escapeFormula_(driveArtworkUrl)
-    ]);
+    const lock = (typeof LockService !== 'undefined' && LockService.getScriptLock)
+      ? LockService.getScriptLock()
+      : null;
 
-    const sheet = this.getOrCreateSheet();
-    const startRow = sheet.getLastRow() + 1;
-    const dateRange = sheet.getRange(startRow, 7, rows.length, 1);
-    if (dateRange && typeof dateRange.setNumberFormat === 'function') {
-      dateRange.setNumberFormat('@');
+    if (lock) {
+      const timeoutMs = (Config && Config.CONSTANTS && Config.CONSTANTS.LOCK_TIMEOUT_MS) || 30000;
+      const hasLock = lock.tryLock(timeoutMs);
+      if (!hasLock) {
+        const err = new Error('他ユーザーが更新処理中のため、保存を実行できませんでした。しばらく時間をおいて再試行してください。');
+        err.code = 'LOCK_TIMEOUT';
+        throw err;
+      }
     }
-    sheet.getRange(startRow, 1, rows.length, 8).setValues(rows);
 
-    return rows.length;
+    try {
+      const rows = tracks.map((t) => [
+        Number(t.cdNumber) || 1,
+        this.escapeFormula_(albumMeta.albumArtist),
+        this.escapeFormula_(albumMeta.albumName),
+        this.escapeFormula_(t.trackArtist || albumMeta.albumArtist),
+        Number(t.trackNumber) || 1,
+        this.escapeFormula_(t.trackName),
+        this.escapeFormula_(albumMeta.releaseDate),
+        this.escapeFormula_(driveArtworkUrl)
+      ]);
+
+      const sheet = this.getOrCreateSheet();
+      const startRow = sheet.getLastRow() + 1;
+      const dateRange = sheet.getRange(startRow, 7, rows.length, 1);
+      if (dateRange && typeof dateRange.setNumberFormat === 'function') {
+        dateRange.setNumberFormat('@');
+      }
+      sheet.getRange(startRow, 1, rows.length, 8).setValues(rows);
+
+      return rows.length;
+    } finally {
+      if (lock) {
+        lock.releaseLock();
+      }
+    }
   }
 
   /**
@@ -131,30 +151,50 @@ class SheetService {
    * @returns {RawTrackRow}
    */
   appendSingleTrack(trackPayload) {
-    const row = [
-      Number(trackPayload.cdNumber) || 1,
-      this.escapeFormula_(trackPayload.albumArtist),
-      this.escapeFormula_(trackPayload.albumName),
-      this.escapeFormula_(trackPayload.trackArtist),
-      Number(trackPayload.trackNumber) || 1,
-      this.escapeFormula_(trackPayload.trackName),
-      this.escapeFormula_(trackPayload.releaseDate),
-      this.escapeFormula_(trackPayload.artworkUrl)
-    ];
+    const lock = (typeof LockService !== 'undefined' && LockService.getScriptLock)
+      ? LockService.getScriptLock()
+      : null;
 
-    const sheet = this.getOrCreateSheet();
-    sheet.appendRow(row);
+    if (lock) {
+      const timeoutMs = (Config && Config.CONSTANTS && Config.CONSTANTS.LOCK_TIMEOUT_MS) || 30000;
+      const hasLock = lock.tryLock(timeoutMs);
+      if (!hasLock) {
+        const err = new Error('他ユーザーが更新処理中のため、保存を実行できませんでした。しばらく時間をおいて再試行してください。');
+        err.code = 'LOCK_TIMEOUT';
+        throw err;
+      }
+    }
 
-    return {
-      cdNumber: row[0],
-      albumArtist: row[1],
-      albumName: row[2],
-      trackArtist: row[3],
-      trackNumber: row[4],
-      trackName: row[5],
-      releaseDate: row[6],
-      artworkUrl: row[7]
-    };
+    try {
+      const row = [
+        Number(trackPayload.cdNumber) || 1,
+        this.escapeFormula_(trackPayload.albumArtist),
+        this.escapeFormula_(trackPayload.albumName),
+        this.escapeFormula_(trackPayload.trackArtist),
+        Number(trackPayload.trackNumber) || 1,
+        this.escapeFormula_(trackPayload.trackName),
+        this.escapeFormula_(trackPayload.releaseDate),
+        this.escapeFormula_(trackPayload.artworkUrl)
+      ];
+
+      const sheet = this.getOrCreateSheet();
+      sheet.appendRow(row);
+
+      return {
+        cdNumber: row[0],
+        albumArtist: row[1],
+        albumName: row[2],
+        trackArtist: row[3],
+        trackNumber: row[4],
+        trackName: row[5],
+        releaseDate: row[6],
+        artworkUrl: row[7]
+      };
+    } finally {
+      if (lock) {
+        lock.releaseLock();
+      }
+    }
   }
 
   /**
@@ -165,13 +205,19 @@ class SheetService {
    * @returns {AlbumEditResult}
    */
   updateAlbumBatch(targetKey, newAlbumMeta, newTracks) {
-    // 1. スクリプト排他ロックの獲得（最大10秒待機）
-    const lock = LockService.getScriptLock();
-    const hasLock = lock.tryLock(10000);
-    if (!hasLock) {
-      const err = new Error('他ユーザーが更新処理中のため、保存を実行できませんでした。しばらく時間をおいて再試行してください。');
-      err.code = 'LOCK_TIMEOUT';
-      throw err;
+    // 1. スクリプト排他ロックの獲得（最大30秒待機）
+    const lock = (typeof LockService !== 'undefined' && LockService.getScriptLock)
+      ? LockService.getScriptLock()
+      : null;
+
+    if (lock) {
+      const timeoutMs = (Config && Config.CONSTANTS && Config.CONSTANTS.LOCK_TIMEOUT_MS) || 30000;
+      const hasLock = lock.tryLock(timeoutMs);
+      if (!hasLock) {
+        const err = new Error('他ユーザーが更新処理中のため、保存を実行できませんでした。しばらく時間をおいて再試行してください。');
+        err.code = 'LOCK_TIMEOUT';
+        throw err;
+      }
     }
 
     try {
@@ -248,7 +294,9 @@ class SheetService {
       };
     } finally {
       // 7. 排他ロックの確実な解放
-      lock.releaseLock();
+      if (lock) {
+        lock.releaseLock();
+      }
     }
   }
 
@@ -267,13 +315,19 @@ class SheetService {
       };
     }
 
-    // 1. スクリプト排他ロックの獲得（最大10秒待機）
-    const lock = LockService.getScriptLock();
-    const hasLock = lock.tryLock(10000);
-    if (!hasLock) {
-      const err = new Error('他ユーザーが更新処理中のため、削除を実行できませんでした。しばらく時間をおいて再試行してください。');
-      err.code = 'LOCK_TIMEOUT';
-      throw err;
+    // 1. スクリプト排他ロックの獲得（最大30秒待機）
+    const lock = (typeof LockService !== 'undefined' && LockService.getScriptLock)
+      ? LockService.getScriptLock()
+      : null;
+
+    if (lock) {
+      const timeoutMs = (Config && Config.CONSTANTS && Config.CONSTANTS.LOCK_TIMEOUT_MS) || 30000;
+      const hasLock = lock.tryLock(timeoutMs);
+      if (!hasLock) {
+        const err = new Error('他ユーザーが更新処理中のため、削除を実行できませんでした。しばらく時間をおいて再試行してください。');
+        err.code = 'LOCK_TIMEOUT';
+        throw err;
+      }
     }
 
     try {
@@ -368,7 +422,9 @@ class SheetService {
       };
     } finally {
       // 6. 排他ロックの確実な解放
-      lock.releaseLock();
+      if (lock) {
+        lock.releaseLock();
+      }
     }
   }
 

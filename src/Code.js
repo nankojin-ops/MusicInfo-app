@@ -10,10 +10,25 @@ function doGet(e) {
     ).setMimeType(ContentService.MimeType.TEXT);
   }
 
+  let allowEmbedding = false;
+  try {
+    const ConfigCls = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
+    if (ConfigCls) {
+      const config = new ConfigCls();
+      allowEmbedding = (typeof config.isEmbeddingAllowed === 'function') && config.isEmbeddingAllowed();
+    }
+  } catch (err) {
+    console.warn('Config読み込みエラー (doGet):', err);
+  }
+
+  const frameMode = allowEmbedding
+    ? HtmlService.XFrameOptionsMode.ALLOWALL
+    : HtmlService.XFrameOptionsMode.DEFAULT;
+
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('MusicInfo Manager - 音楽CD・アルバムコレクション管理')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    .setXFrameOptionsMode(frameMode);
 }
 
 /**

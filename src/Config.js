@@ -16,6 +16,10 @@ class Config {
     this.musicBrainzEnabled = (rawMbEnabled === 'false' || rawMbEnabled === '0')
       ? false
       : Boolean(Config.CONSTANTS.MUSICBRAINZ.ENABLED);
+    const rawAllowEmbedding = props.ALLOW_EMBEDDING !== undefined && props.ALLOW_EMBEDDING !== null
+      ? String(props.ALLOW_EMBEDDING).trim().toLowerCase()
+      : '';
+    this.allowEmbedding = (rawAllowEmbedding === 'true' || rawAllowEmbedding === '1');
   }
 
   /**
@@ -69,6 +73,14 @@ class Config {
   }
 
   /**
+   * iframe 埋め込み (X-Frame-Options: ALLOWALL) を許可するかどうか
+   * @returns {boolean} デフォルト false (DEFAULT モード)
+   */
+  isEmbeddingAllowed() {
+    return this.allowEmbedding;
+  }
+
+  /**
    * 必須設定が揃っているか検証
    * @returns {boolean}
    */
@@ -81,6 +93,7 @@ class Config {
    */
   static get CONSTANTS() {
     return {
+      LOCK_TIMEOUT_MS: 30000,
       SHEET_HEADERS: [
         'CD番号',
         'アルバムアーティスト名',
@@ -110,6 +123,7 @@ class Config {
         RETRY_DELAY_MS: 1100,
         MAX_RETRIES: 1,
         CACHE_KEY_LAST_REQ: 'MUSICBRAINZ_LAST_REQUEST_TS',
+        LOCK_TIMEOUT_MS: 10000,
         ENABLED: true
       }
     };

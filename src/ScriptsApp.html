@@ -1683,8 +1683,15 @@ class App {
     const spinner = uploadBtn ? uploadBtn.querySelector(isEdit ? '.edit-album-upload-spinner' : '.manual-upload-spinner') : null;  
 
     let base64Data = '';  
+    let uploadMimeType = validation.mimeType;  
     try {  
-      base64Data = await Utils.readFileAsBase64(file);  
+      if (typeof Utils.resizeImage === 'function') {  
+        base64Data = await Utils.resizeImage(file, { maxWidth: 800, maxHeight: 800, quality: 0.85 });  
+        const headerMatch = base64Data.match(/^data:([^;]+);base64,/i);
+        uploadMimeType = headerMatch ? headerMatch[1].toLowerCase() : 'image/jpeg';  
+      } else {  
+        base64Data = await Utils.readFileAsBase64(file);  
+      }  
       if (previewEl) {  
         previewEl.onerror = () => {  
           previewEl.src = Utils.getDefaultArtworkSvg();  
@@ -1719,7 +1726,7 @@ class App {
     try {  
       const res = await this.api.uploadArtwork({  
         base64Data: base64Data,  
-        mimeType: validation.mimeType,  
+        mimeType: uploadMimeType,  
         albumName: albumName  
       });  
 

@@ -43,10 +43,32 @@ class DriveService {
       }
 
       const blob = response.getBlob();
-      const fileName = this.generateArtworkFileName(albumName, 'jpg');
+      const rawMime = (typeof blob.getContentType === 'function' && blob.getContentType())
+        ? String(blob.getContentType()).split(';')[0].trim().toLowerCase()
+        : '';
 
-      blob.setName(fileName);
-      blob.setContentType('image/jpeg');
+      let ext = 'jpg';
+      let resolvedMime = 'image/jpeg';
+
+      if (rawMime === 'image/png') {
+        ext = 'png';
+        resolvedMime = 'image/png';
+      } else if (rawMime === 'image/webp') {
+        ext = 'webp';
+        resolvedMime = 'image/webp';
+      } else if (rawMime === 'image/jpeg' || rawMime === 'image/jpg') {
+        ext = 'jpg';
+        resolvedMime = 'image/jpeg';
+      }
+
+      const fileName = this.generateArtworkFileName(albumName, ext);
+
+      if (typeof blob.setName === 'function') {
+        blob.setName(fileName);
+      }
+      if (typeof blob.setContentType === 'function') {
+        blob.setContentType(resolvedMime);
+      }
 
       const file = folder.createFile(blob);
       this.setPublicSharing(file);
