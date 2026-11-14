@@ -1,6 +1,6 @@
-<section id="pane-tracks" class="h-full flex flex-col overflow-y-auto md:col-span-5 bg-slate-950 p-3 md:p-5">
-  <!-- スマホ用 戻るナビゲーションバー (STEP 3表示時) -->
-  <div id="tracks-mobile-back-bar" class="md:hidden -mx-3 -mt-3 mb-3 px-3 py-2 border-b border-slate-800 bg-slate-950 flex items-center justify-between sticky top-0 z-10">
+<section id="pane-tracks" class="h-full flex flex-col overflow-hidden md:col-span-5 bg-slate-950 p-0">
+  <!-- スマホ用 戻るナビゲーションバー (STEP 3表示時・非sticky固定ヘッダー) -->
+  <div id="tracks-mobile-back-bar" class="md:hidden px-3 py-2 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
     <button id="btn-back-to-albums" class="inline-flex items-center gap-1.5 min-h-[44px] min-w-[44px] px-3 py-2.5 -ml-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 active:scale-95 transition">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
@@ -10,82 +10,88 @@
     <span class="text-xs text-slate-500 font-mono">STEP 3 / 3</span>
   </div>
 
-  <!-- パンくずリスト (PC表示) -->
-  <div id="track-breadcrumb" class="hidden md:flex items-center gap-2 text-xs text-slate-400 mb-4 flex-shrink-0">
-    <span id="breadcrumb-artist" class="hover:text-slate-200 cursor-pointer">アーティスト</span>
-    <span>/</span>
-    <span id="breadcrumb-album" class="text-slate-200 font-semibold truncate">アルバム名</span>
-  </div>
+  <!-- スクロール本体ラッパー -->
+  <div class="track-detail-scroll-body flex-1 min-h-0 overflow-y-auto p-2.5 md:p-3 lg:p-5 flex flex-col">
+    <!-- パンくずリスト (PC表示) -->
+    <div id="track-breadcrumb" class="hidden md:flex items-center gap-2 text-xs text-slate-400 mb-4 flex-shrink-0 min-w-0">
+      <span id="breadcrumb-artist" class="hover:text-slate-200 cursor-pointer min-w-0 truncate">アーティスト</span>
+      <span class="flex-shrink-0">/</span>
+      <span id="breadcrumb-album" class="text-slate-200 font-semibold min-w-0 truncate">アルバム名</span>
+    </div>
 
-  <!-- アルバムヘッダーカード -->
-  <div id="track-album-header" class="bg-slate-900 border border-slate-800/80 rounded-xl p-3 md:p-4 mb-4 flex gap-3 md:gap-4 items-center flex-shrink-0 shadow-lg">
-    <!-- ジャケット画像（タップで拡大） -->
-    <div class="relative group cursor-pointer flex-shrink-0" id="btn-zoom-track-artwork">
-      <img id="track-header-artwork" src="" alt="Album Artwork" referrerpolicy="no-referrer"
-        class="w-20 h-20 md:w-28 md:h-28 rounded-lg object-cover bg-slate-800 border border-slate-700/60 shadow">
-      <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 rounded-lg flex items-center justify-center transition">
-        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"></path>
-        </svg>
+    <!-- アルバムヘッダーカード -->
+    <div id="track-album-header" class="bg-slate-900 border border-slate-800/80 rounded-xl p-3 2xl:p-4 mb-4 flex flex-col 2xl:flex-row items-stretch 2xl:items-center gap-3 2xl:gap-4 flex-shrink-0 shadow-lg">
+      <!-- 情報ラッパー（ジャケット画像＋アルバムメタデータ） -->
+      <div class="flex items-start 2xl:items-center gap-3 2xl:gap-4 flex-1 min-w-0 w-full 2xl:w-auto">
+        <!-- ジャケット画像（タップで拡大） -->
+        <div id="btn-zoom-track-artwork" class="relative group cursor-pointer flex-shrink-0">
+          <img id="track-header-artwork" src="" alt="Album Artwork" referrerpolicy="no-referrer"
+            class="w-20 h-20 lg:w-24 lg:h-24 xl:w-28 xl:h-28 flex-shrink-0 rounded-lg object-cover bg-slate-800 border border-slate-700/60 shadow">
+          <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 rounded-lg flex items-center justify-center transition">
+            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"></path>
+            </svg>
+          </div>
+        </div>
+
+        <!-- アルバムメタデータ -->
+        <div class="flex-1 min-w-0">
+          <h1 id="track-header-album-name" class="text-base md:text-xl font-bold text-slate-100 break-words [overflow-wrap:anywhere] 2xl:truncate mb-1">
+            アルバム未選択
+          </h1>
+          <p id="track-header-artist-name" class="text-xs md:text-sm text-indigo-400 font-medium break-words [overflow-wrap:anywhere] 2xl:truncate mb-2">
+            -
+          </p>
+          <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
+            <span id="track-header-release-date" class="bg-slate-800 px-2 py-0.5 rounded">
+              -
+            </span>
+            <span id="track-header-total-tracks" class="bg-slate-800 px-2 py-0.5 rounded">
+              0曲
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- アルバム操作ボタングループ（編集・1曲追加・削除） -->
+      <div class="w-full 2xl:w-auto grid grid-cols-3 2xl:flex items-center gap-1.5 pt-2.5 2xl:pt-0 border-t border-slate-800/80 2xl:border-t-0 flex-shrink-0">
+        <!-- このアルバムを編集ボタン (WCAG 44pxタップ領域保証) -->
+        <button id="btn-edit-album" class="min-h-[44px] min-w-[44px] justify-center px-1.5 sm:px-2 py-2 text-slate-300 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1" title="このアルバムの情報を編集">
+          <svg class="w-4 h-4 2xl:w-5 2xl:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+          </svg>
+          <span class="text-xs font-medium whitespace-nowrap">編集</span>
+        </button>
+
+        <!-- 1曲手動追加ボタン (WCAG 44pxタップ領域保証) -->
+        <button id="btn-add-track-to-album" class="min-h-[44px] min-w-[44px] justify-center px-1.5 sm:px-2 py-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1" title="このアルバムに曲を追加">
+          <svg class="w-4 h-4 2xl:w-5 2xl:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+          </svg>
+          <span class="text-xs font-medium whitespace-nowrap">曲追加</span>
+        </button>
+
+        <!-- アルバム削除ボタン (WCAG 44pxタップ領域保証) -->
+        <button id="btn-delete-album" class="min-h-[44px] min-w-[44px] justify-center px-1.5 sm:px-2 py-2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition active:scale-95 flex items-center gap-1" title="このアルバムを削除">
+          <svg class="w-4 h-4 2xl:w-5 2xl:h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+          </svg>
+          <span class="text-xs font-medium whitespace-nowrap">削除</span>
+        </button>
       </div>
     </div>
 
-    <!-- アルバムメタデータ -->
-    <div class="flex-1 min-w-0">
-      <h1 id="track-header-album-name" class="text-base md:text-xl font-bold text-slate-100 truncate mb-1">
-        アルバム未選択
-      </h1>
-      <p id="track-header-artist-name" class="text-xs md:text-sm text-indigo-400 font-medium truncate mb-2">
-        -
-      </p>
-      <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
-        <span id="track-header-release-date" class="bg-slate-800 px-2 py-0.5 rounded">
-          -
-        </span>
-        <span id="track-header-total-tracks" class="bg-slate-800 px-2 py-0.5 rounded">
-          0曲
-        </span>
-      </div>
+    <!-- ディスク別楽曲コンテナ（Disc 1, Disc 2 ...） -->
+    <div id="track-discs-container" class="space-y-4 min-w-0">
+      <!-- 動的レンダリング: DiscGroup ごとにカード・テーブルを描画 -->
     </div>
 
-    <!-- アルバム操作ボタングループ（編集 & 1曲追加） -->
-    <div class="flex-shrink-0 flex items-center gap-1 sm:gap-1.5">
-      <!-- このアルバムを編集ボタン (WCAG 44pxタップ領域保証) -->
-      <button id="btn-edit-album" class="min-h-[44px] min-w-[44px] p-2 text-slate-300 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムの情報を編集">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-        </svg>
-        <span class="text-xs font-medium hidden sm:inline">編集</span>
-      </button>
-
-      <!-- 1曲手動追加ボタン (WCAG 44pxタップ領域保証) -->
-      <button id="btn-add-track-to-album" class="min-h-[44px] min-w-[44px] p-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムに曲を追加">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-        </svg>
-        <span class="text-xs font-medium hidden sm:inline">曲追加</span>
-      </button>
-
-      <!-- アルバム削除ボタン (WCAG 44pxタップ領域保証) -->
-      <button id="btn-delete-album" class="min-h-[44px] min-w-[44px] p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-lg transition active:scale-95 flex items-center gap-1.5" title="このアルバムを削除">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-        </svg>
-        <span class="text-xs font-medium hidden sm:inline">削除</span>
-      </button>
+    <!-- 空状態プレースホルダー -->
+    <div id="track-empty-state" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500">
+      <svg class="w-12 h-12 mb-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path>
+      </svg>
+      <p class="text-sm">アルバムを選択すると<br>収録トラック一覧が表示されます</p>
     </div>
-  </div>
-
-  <!-- ディスク別楽曲コンテナ（Disc 1, Disc 2 ...） -->
-  <div id="track-discs-container" class="space-y-4">
-    <!-- 動的レンダリング: DiscGroup ごとにカード・テーブルを描画 -->
-  </div>
-
-  <!-- 空状態プレースホルダー -->
-  <div id="track-empty-state" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500">
-    <svg class="w-12 h-12 mb-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path>
-    </svg>
-    <p class="text-sm">アルバムを選択すると<br>収録トラック一覧が表示されます</p>
   </div>
 </section>

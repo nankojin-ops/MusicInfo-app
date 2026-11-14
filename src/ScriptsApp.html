@@ -19,6 +19,7 @@ class App {
     this.isDeletingAlbums = false; // アルバム削除API通信待機中フラグ (BUG-002)
     this.isTestingConnection = false; // 接続テスト実行中フラグ
     this.isSavingConnection = false; // 接続設定保存・切替中フラグ
+    this.itunesMobileView = 'results'; // iTunesモーダルのモバイル表示ペイン ('results' | 'preview')
   }  
 
   /**  
@@ -40,7 +41,7 @@ class App {
       'error',  
       (e) => {  
         const target = e.target;  
-        if (target && target.tagName === 'IMG' && target.hasAttribute('data-artwork')) {  
+        if (target && target.tagName === 'IMG' && target.hasAttribute('data-artwork') && typeof target.onerror !== 'function') {  
           Utils.handleImageError(target);  
         }  
       },  
@@ -170,6 +171,8 @@ class App {
     if (btnCloseItunes) btnCloseItunes.addEventListener('click', () => this.closeItunesModal());  
     const btnCancelItunes = document.getElementById('btn-cancel-itunes-modal');  
     if (btnCancelItunes) btnCancelItunes.addEventListener('click', () => this.closeItunesModal());  
+    const btnItunesMobileBack = document.getElementById('btn-itunes-mobile-back');  
+    if (btnItunesMobileBack) btnItunesMobileBack.addEventListener('click', () => this.setItunesMobileView('results'));  
 
     // iTunes 検索実行  
     const btnSearchItunes = document.getElementById('btn-itunes-search-submit');  
@@ -712,6 +715,7 @@ class App {
     if (itunesPreviewTbody) itunesPreviewTbody.innerHTML = '';
     if (itunesSummary) itunesSummary.textContent = 'アルバムを選択してください';
     if (itunesSubmitBtn) itunesSubmitBtn.disabled = true;
+    this.setItunesMobileView('results');
 
     if (window.innerWidth < 768) {
       this.setMobileStep(1);
@@ -1173,25 +1177,25 @@ class App {
     const html = sortedDiscs.map((disc) => {  
       const rows = disc.tracks.map((t) => {  
         const artistDiffHtml = (t.trackArtist && t.trackArtist !== album.albumArtist)  
-          ? '<p class="text-[11px] text-slate-400 truncate">' + Utils.escapeHtml(t.trackArtist) + '</p>'  
+          ? '<p class="text-[11px] text-slate-400 break-words [overflow-wrap:anywhere] md:truncate mt-0.5">' + Utils.escapeHtml(t.trackArtist) + '</p>'  
           : '';  
 
         return `  
         <div id="track-row-${disc.cdNumber}-${t.trackNumber}"  
-             class="track-row-item px-3 py-2 flex items-center justify-between hover:bg-slate-800/50 transition duration-300 border-b border-slate-800/40 last:border-b-0 min-h-[44px]"  
+             class="track-row-item px-2.5 md:px-3 py-2.5 md:py-2 flex items-center justify-between gap-2 hover:bg-slate-800/50 transition duration-300 border-b border-slate-800/40 last:border-b-0 min-h-[44px]"  
              data-cd="${disc.cdNumber}" data-track-no="${t.trackNumber}">  
-          <div class="flex items-center gap-3 min-w-0 pr-2">  
+          <div class="flex items-center gap-2.5 md:gap-3 flex-1 min-w-0 pr-0 md:pr-2">  
             <span class="w-6 text-center text-xs font-mono font-semibold text-slate-500 flex-shrink-0">  
               ${t.trackNumber}  
             </span>  
-            <div class="min-w-0">  
-              <p class="text-xs md:text-sm font-medium text-slate-200 truncate">  
+            <div class="flex-1 min-w-0">  
+              <p class="text-xs md:text-sm font-medium text-slate-200 break-words [overflow-wrap:anywhere] md:truncate">  
                 ${Utils.escapeHtml(t.trackName)}  
               </p>  
               ${artistDiffHtml}  
             </div>  
           </div>  
-          <span class="text-[10px] text-slate-500 font-mono uppercase bg-slate-800/60 px-1.5 py-0.5 rounded flex-shrink-0">  
+          <span class="hidden md:inline-block text-[10px] text-slate-500 font-mono uppercase bg-slate-800/60 px-1.5 py-0.5 rounded flex-shrink-0">  
             Track ${t.trackNumber}  
           </span>  
         </div>  
@@ -1200,13 +1204,13 @@ class App {
 
       return `  
         <div class="bg-slate-900 border border-slate-800/80 rounded-xl overflow-hidden shadow">  
-          <div class="px-3 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center justify-between">  
-            <div class="flex items-center gap-2">  
-              <span class="w-2 h-2 rounded-full bg-indigo-500"></span>  
+          <div class="px-2.5 md:px-3 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center justify-between gap-2">  
+            <div class="flex items-center gap-2 min-w-0">  
+              <span class="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0"></span>  
               <h3 class="text-xs md:text-sm font-bold text-slate-200 font-mono">Disc ${disc.cdNumber}</h3>  
-              <span class="text-[11px] text-slate-400 font-mono">(CD番号: ${disc.cdNumber})</span>  
+              <span class="hidden md:inline text-[11px] text-slate-400 font-mono">(CD番号: ${disc.cdNumber})</span>  
             </div>  
-            <span class="text-xs text-slate-400 font-mono">${disc.tracks.length} 曲</span>  
+            <span class="text-xs text-slate-400 font-mono flex-shrink-0">${disc.tracks.length} 曲</span>  
           </div>  
           <div class="divide-y divide-slate-800/40">  
             ${rows}  
@@ -1306,14 +1310,14 @@ class App {
         const highlightedName = Utils.highlightMatch(item.artistName, queryTokens);  
 
         html += `  
-          <div class="search-dropdown-item group p-2 hover:bg-indigo-600/20 cursor-pointer flex items-center justify-between gap-2.5 rounded-lg transition select-none"  
+          <div class="search-dropdown-item group p-2 hover:bg-indigo-600/20 cursor-pointer flex items-center justify-between gap-2.5 rounded-lg transition select-none min-h-[44px]"  
                data-type="artist" data-artist="${Utils.escapeHtml(item.artistName)}" role="option">  
-            <div class="flex items-center gap-2.5 min-w-0">  
+            <div class="flex items-center gap-2.5 flex-1 min-w-0">  
               <div class="w-8 h-8 rounded-full bg-slate-800 border border-slate-700/80 overflow-hidden flex-shrink-0 flex items-center justify-center">  
                 <img src="${Utils.escapeHtml(artUrl)}" data-artwork="${Utils.escapeHtml(item.artworkUrl || '')}" data-error-step="0" class="w-full h-full object-cover" loading="lazy">  
               </div>  
-              <div class="min-w-0">  
-                <h5 class="text-xs font-bold text-slate-100 truncate group-hover:text-indigo-300 transition">${highlightedName}</h5>  
+              <div class="flex-1 min-w-0">  
+                <h5 class="text-xs font-bold text-slate-100 break-words [overflow-wrap:anywhere] md:truncate group-hover:text-indigo-300 transition">${highlightedName}</h5>  
                 <p class="text-[10px] text-slate-400 font-mono">${item.albumCount} 作品を保有</p>  
               </div>  
             </div>  
@@ -1337,13 +1341,13 @@ class App {
         const highlightedArtist = Utils.highlightMatch(item.albumArtist, queryTokens);  
 
         html += `  
-          <div class="search-dropdown-item group p-2 hover:bg-indigo-600/20 cursor-pointer flex items-center justify-between gap-2.5 rounded-lg transition select-none"  
+          <div class="search-dropdown-item group p-2 hover:bg-indigo-600/20 cursor-pointer flex items-center justify-between gap-2.5 rounded-lg transition select-none min-h-[44px]"  
                data-type="album" data-artist="${Utils.escapeHtml(item.albumArtist)}" data-album="${Utils.escapeHtml(item.albumName)}" role="option">  
-            <div class="flex items-center gap-2.5 min-w-0">  
+            <div class="flex items-center gap-2.5 flex-1 min-w-0">  
               <img src="${Utils.escapeHtml(artUrl)}" data-artwork="${Utils.escapeHtml(item.artworkUrl || '')}" data-error-step="0" class="w-9 h-9 rounded-lg object-cover bg-slate-800 border border-slate-700/80 flex-shrink-0 shadow" loading="lazy">  
-              <div class="min-w-0">  
-                <h5 class="text-xs font-bold text-slate-100 truncate group-hover:text-indigo-300 transition">${highlightedAlbum}</h5>  
-                <p class="text-[10px] text-slate-400 truncate mt-0.5">${highlightedArtist} • ${item.totalTracks}曲</p>  
+              <div class="flex-1 min-w-0">  
+                <h5 class="text-xs font-bold text-slate-100 break-words [overflow-wrap:anywhere] md:truncate group-hover:text-indigo-300 transition">${highlightedAlbum}</h5>  
+                <p class="text-[10px] text-slate-400 break-words [overflow-wrap:anywhere] md:truncate mt-0.5">${highlightedArtist} • ${item.totalTracks}曲</p>  
               </div>  
             </div>  
             <span class="text-[10px] text-slate-500 font-mono bg-slate-800/80 px-1.5 py-0.5 rounded flex-shrink-0">Album</span>  
@@ -1366,17 +1370,17 @@ class App {
         const highlightedMeta = Utils.highlightMatch(`${item.trackArtist || item.albumArtist} • ${item.albumName}`, queryTokens);  
 
         html += `  
-          <div class="search-dropdown-item group p-2 hover:bg-indigo-600/20 cursor-pointer flex items-center justify-between gap-2.5 rounded-lg transition select-none"  
+          <div class="search-dropdown-item group p-2 hover:bg-indigo-600/20 cursor-pointer flex items-center justify-between gap-2.5 rounded-lg transition select-none min-h-[44px]"  
                data-type="track"  
                data-artist="${Utils.escapeHtml(item.albumArtist)}"  
                data-album="${Utils.escapeHtml(item.albumName)}"  
                data-cd="${item.cdNumber}"  
                data-track-no="${item.trackNumber}" role="option">  
-            <div class="flex items-center gap-2.5 min-w-0">  
+            <div class="flex items-center gap-2.5 flex-1 min-w-0">  
               <img src="${Utils.escapeHtml(artUrl)}" data-artwork="${Utils.escapeHtml(item.artworkUrl || '')}" data-error-step="0" class="w-8 h-8 rounded object-cover bg-slate-800 border border-slate-700/60 flex-shrink-0" loading="lazy">  
-              <div class="min-w-0">  
-                <h5 class="text-xs font-semibold text-slate-100 truncate group-hover:text-indigo-200 transition">${highlightedTrack}</h5>  
-                <p class="text-[10px] text-slate-400 truncate mt-0.5">${highlightedMeta}</p>  
+              <div class="flex-1 min-w-0">  
+                <h5 class="text-xs font-semibold text-slate-100 break-words [overflow-wrap:anywhere] md:truncate group-hover:text-indigo-200 transition">${highlightedTrack}</h5>  
+                <p class="text-[10px] text-slate-400 break-words [overflow-wrap:anywhere] md:truncate mt-0.5">${highlightedMeta}</p>  
               </div>  
             </div>  
             <div class="text-right flex-shrink-0">  
@@ -1470,9 +1474,9 @@ class App {
       if (rowEl) {  
         rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });  
         // 一時的にパルス強調  
-        rowEl.classList.add('bg-indigo-600/30', 'ring-2', 'ring-indigo-500/80');  
+        rowEl.classList.add('bg-indigo-600/30', 'ring-2', 'ring-inset', 'ring-indigo-500/80');  
         setTimeout(() => {  
-          rowEl.classList.remove('bg-indigo-600/30', 'ring-2', 'ring-indigo-500/80');  
+          rowEl.classList.remove('bg-indigo-600/30', 'ring-2', 'ring-inset', 'ring-indigo-500/80');  
         }, 2500);  
       }  
     }, 120);  
@@ -1537,11 +1541,40 @@ class App {
   }  
 
   /**  
+   * iTunes検索モーダルのモバイル表示ペインを切り替える (<768px 向け)  
+   * @param {'results'|'preview'} view  
+   */  
+  setItunesMobileView(view) {  
+    const mode = view === 'preview' ? 'preview' : 'results';  
+    this.itunesMobileView = mode;  
+    const resultsEl = document.getElementById('itunes-results-container');  
+    const previewEl = document.getElementById('itunes-preview-panel');  
+    if (resultsEl) {  
+      if (mode === 'preview') {  
+        resultsEl.classList.add('hidden');  
+      } else {  
+        resultsEl.classList.remove('hidden');  
+      }  
+    }  
+    if (previewEl) {  
+      if (mode === 'preview') {  
+        previewEl.classList.remove('hidden');  
+        previewEl.classList.add('flex');  
+        previewEl.scrollTop = 0;  
+      } else {  
+        previewEl.classList.add('hidden');  
+        previewEl.classList.remove('flex');  
+      }  
+    }  
+  }  
+
+  /**  
    * iTunes モーダル表示  
    */  
   openItunesModal() {  
     const modal = document.getElementById('modal-itunes');  
     if (modal) modal.classList.remove('hidden');  
+    this.setItunesMobileView('results');  
     const input = document.getElementById('itunes-search-input');  
     if (input) {  
       input.value = this.store.state.selectedArtist || '';  
@@ -1579,6 +1612,7 @@ class App {
       this.store.state.itunesSearchResults = (res && Array.isArray(res.albums)) ? res.albums : [];  
       this.store.state.searchSources = (res && res.sources) ? res.sources : null;  
       this.renderItunesResults();  
+      this.setItunesMobileView('results');  
 
       if (res && res.sources) {  
         const itStatus = res.sources.itunes;  
@@ -1656,7 +1690,7 @@ class App {
         : '';  
 
       return `  
-        <div class="itunes-result-item p-2.5 hover:bg-slate-800/60 cursor-pointer flex gap-2.5 items-center transition"  
+        <div class="itunes-result-item min-h-[44px] p-2.5 hover:bg-slate-800/60 cursor-pointer flex gap-2.5 items-center transition"  
              data-source="${Utils.escapeHtml(source)}"  
              data-id="${Utils.escapeHtml(sourceId)}">  
           <img src="${imgSrc}" data-artwork="${Utils.escapeHtml(rawArt)}" data-error-step="0" class="w-12 h-12 rounded object-cover bg-slate-800 flex-shrink-0" loading="lazy">  
@@ -1741,10 +1775,13 @@ class App {
             : `${t.cdNumber}`;  
           return `  
             <tr class="hover:bg-slate-800/40">  
-              <td class="py-1 px-1.5 text-center font-mono text-indigo-400 font-bold whitespace-nowrap">${cdLabel}</td>  
-              <td class="py-1 px-1.5 text-center font-mono text-slate-500">${t.trackNumber}</td>  
-              <td class="py-1 px-2 font-medium text-slate-200 truncate max-w-[150px]">${Utils.escapeHtml(t.trackName)}</td>  
-              <td class="py-1 px-2 text-slate-400 truncate max-w-[100px]">${Utils.escapeHtml(t.trackArtist)}</td>  
+              <td class="py-1.5 px-1.5 text-center font-mono text-indigo-400 font-bold break-words">${cdLabel}</td>  
+              <td class="py-1.5 px-1.5 text-center font-mono text-slate-500">${t.trackNumber}</td>  
+              <td class="py-1.5 px-2 font-medium text-slate-200 break-words [overflow-wrap:anywhere]">  
+                ${Utils.escapeHtml(t.trackName)}  
+                <span class="block sm:hidden text-[10px] text-slate-400 font-normal mt-0.5 break-words [overflow-wrap:anywhere]">${Utils.escapeHtml(t.trackArtist)}</span>  
+              </td>  
+              <td class="hidden sm:table-cell py-1.5 px-2 text-slate-400 break-words [overflow-wrap:anywhere]">${Utils.escapeHtml(t.trackArtist)}</td>  
             </tr>  
           `;  
         }).join('');  
@@ -1755,6 +1792,7 @@ class App {
       }  
 
       if (submitBtn) submitBtn.disabled = false;  
+      this.setItunesMobileView('preview');  
     } catch (err) {  
       if (err && err.code === 'LOCAL_MODE_UNSUPPORTED') {
         Utils.showToast(err.message, 'warning', 6000);

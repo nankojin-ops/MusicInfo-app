@@ -1844,6 +1844,109 @@ recordResult(
   'CRITICAL'
 );
 
+console.log('\n>>> [9.4] TrackDetail / ItunesModal v1.1.0 レイアウト 44px・2xl遷移・table-fixed・二重発火防止検証');
+const indexTemplateForRt = fs.readFileSync(path.join(__dirname, '../src/index.template.html'), 'utf8');
+const trackDetailForRt = fs.readFileSync(path.join(__dirname, '../src/TrackDetail.html'), 'utf8');
+const itunesModalForRt = fs.readFileSync(path.join(__dirname, '../src/ItunesModal.html'), 'utf8');
+const scriptsAppForRt = fs.readFileSync(path.join(__dirname, '../src/ScriptsApp.html'), 'utf8');
+
+const trackDetailButtonsRt = [
+  { id: 'btn-back-to-albums', requireMinWidth: true, requireLabel: false, requireCenter: false },
+  { id: 'btn-edit-album', requireMinWidth: true, requireLabel: true, requireCenter: true },
+  { id: 'btn-add-track-to-album', requireMinWidth: true, requireLabel: true, requireCenter: true },
+  { id: 'btn-delete-album', requireMinWidth: true, requireLabel: true, requireCenter: true }
+];
+
+trackDetailButtonsRt.forEach((btn) => {
+  const regex = new RegExp(`<button[^>]*id=["']${btn.id}["'][^>]*class=["']([^"']*)["'][^>]*>([\\s\\S]*?)<\\/button>`, 'i');
+  const match = trackDetailForRt.match(regex);
+  const cls = match && match[1] ? match[1] : '';
+  const inner = match && match[2] ? match[2] : '';
+  const has44px = cls.includes('min-h-[44px]') && (!btn.requireMinWidth || cls.includes('min-w-[44px]'));
+  const hasCenter = !btn.requireCenter || cls.includes('justify-center');
+  let labelOk = true;
+  if (btn.requireLabel) {
+    const spanMatch = inner.match(/<span[^>]*class=["']([^"']*)["']/i);
+    const spanCls = spanMatch && spanMatch[1] ? spanMatch[1] : '';
+    labelOk = Boolean(spanCls.includes('whitespace-nowrap') && !spanCls.includes('hidden'));
+  }
+  recordResult(
+    `TrackDetail: ${btn.id} 44px(id→class順)${btn.requireLabel ? '・モバイルラベル常時表示' : ''}確保`,
+    Boolean(match && has44px && hasCenter && labelOk),
+    `${btn.id} の属性順・44px・中央配置・ラベル表示要件に不備 (class="${cls}")`,
+    'HIGH'
+  );
+});
+
+const itunesButtonsRt = [
+  { id: 'btn-close-itunes-modal', requireMinWidth: true },
+  { id: 'btn-itunes-search-submit', requireMinWidth: false },
+  { id: 'btn-itunes-mobile-back', requireMinWidth: true },
+  { id: 'btn-cancel-itunes-modal', requireMinWidth: false },
+  { id: 'btn-submit-itunes-batch', requireMinWidth: false }
+];
+
+itunesButtonsRt.forEach((btn) => {
+  const regex = new RegExp(`<button[^>]*id=["']${btn.id}["'][^>]*class=["']([^"']*)["']`, 'i');
+  const match = itunesModalForRt.match(regex);
+  const cls = match && match[1] ? match[1] : '';
+  const has44px = cls.includes('min-h-[44px]') && (!btn.requireMinWidth || cls.includes('min-w-[44px]'));
+  recordResult(
+    `ItunesModal: ${btn.id} 44px(id→class順)確保 (BUG-006)`,
+    Boolean(match && has44px),
+    `${btn.id} に min-h-[44px]${btn.requireMinWidth ? ' / min-w-[44px]' : ''} または id→class 順序が不足 (class="${cls}")`,
+    'HIGH'
+  );
+});
+
+const mainTagForRt = indexTemplateForRt.match(/<main[^>]*class=["']([^"']*)["']/i);
+const mainClsForRt = mainTagForRt && mainTagForRt[1] ? mainTagForRt[1] : '';
+const trackDetailNoCommentsRt = trackDetailForRt.replace(/<!--[\s\S]*?-->/g, '');
+const hasNonStickySplitHeader =
+  /id=["']pane-tracks["'][^>]*class=["'][^"']*\boverflow-hidden\b[^"']*\bp-0\b/.test(trackDetailForRt) &&
+  /id=["']tracks-mobile-back-bar["'][^>]*class=["'][^"']*\bflex-shrink-0\b/.test(trackDetailForRt) &&
+  !/\bsticky\b/.test(trackDetailNoCommentsRt) &&
+  !trackDetailForRt.includes('-mx-2.5') &&
+  !trackDetailForRt.includes('-mt-2.5') &&
+  !mainClsForRt.includes('divide-y');
+recordResult(
+  'TrackDetail / index.template: 非sticky固定戻るバー分離 & <main> divide-y 不在 (BUG-004)',
+  hasNonStickySplitHeader,
+  'sticky / 負マージン / <main> divide-y のいずれかが残存',
+  'HIGH'
+);
+
+const hasSafe2xlHeaderAndBreadcrumb =
+  /id=["']track-album-header["'][^>]*class=["'][^"']*\b2xl:flex-row\b/.test(trackDetailForRt) &&
+  !trackDetailForRt.includes('md:flex-row') &&
+  /id=["']breadcrumb-artist["'][^>]*class=["'][^"']*\bmin-w-0\b[^"']*\btruncate\b/.test(trackDetailForRt);
+recordResult(
+  'TrackDetail: #track-album-header 2xl:flex-row 引き上げ & #breadcrumb-artist truncate (BUG-001, BUG-005)',
+  hasSafe2xlHeaderAndBreadcrumb,
+  '768-1024px 帯域のヘッダー圧迫またはパンくず溢れ防止設定が不足',
+  'CRITICAL'
+);
+
+const duplicateIdFound = ['btn-edit-album', 'btn-add-track-to-album', 'btn-delete-album', 'track-album-header', 'btn-itunes-mobile-back']
+  .some((id) => (distIndexForRt.match(new RegExp(`id=["']${id}["']`, 'g')) || []).length !== 1);
+recordResult(
+  'dist/index.html: TrackDetail / ItunesModal 操作ボタン・ヘッダーの単一DOM契約（重複IDなし）',
+  !duplicateIdFound,
+  'PC/モバイル用要素の複製による ID 重複が検出された',
+  'HIGH'
+);
+
+recordResult(
+  'ItunesModal / ScriptsApp: table-fixed 適用・旧固定幅強制省略排除・BUG-007 画像エラー二重発火防止',
+  !scriptsAppForRt.includes('max-w-[150px]') &&
+  !scriptsAppForRt.includes('max-w-[100px]') &&
+  /<table[^>]*class=["'][^"']*\btable-fixed\b/.test(itunesModalForRt) &&
+  itunesModalForRt.includes('hidden sm:table-cell') &&
+  scriptsAppForRt.includes("typeof target.onerror !== 'function'"),
+  'table-fixed / sm:table-cell / 固定幅排除 / BUG-007 二重発火防止ガードのいずれかが不足',
+  'HIGH'
+);
+
 // -----------------------------------------------------------------------------
 // 結果サマリー
 // -----------------------------------------------------------------------------

@@ -2914,12 +2914,20 @@ console.log('\n[13] Code.js doPost JSON API ディスパッチャ・認証・11�
     'artist-filter-input', 'artist-filter-clear', 'global-loading', 'global-loading-text',
     'header-search-input', 'header-search-clear', 'pc-search-dropdown', 'pc-search-results',
     'mobile-search-input', 'mobile-search-clear', 'mobile-search-dropdown', 'mobile-search-results',
-    'itunes-search-input', 'itunes-results-container', 'itunes-preview-empty',
+    'modal-itunes', 'itunes-search-input', 'itunes-results-container', 'itunes-preview-panel',
+    'itunes-mobile-back-bar', 'btn-itunes-mobile-back', 'btn-close-itunes-modal',
+    'btn-itunes-search-submit', 'btn-cancel-itunes-modal', 'itunes-preview-empty',
     'itunes-preview-content', 'itunes-preview-artwork', 'itunes-preview-album',
     'itunes-preview-artist', 'itunes-preview-meta', 'itunes-preview-tracks-tbody',
     'itunes-selected-summary', 'btn-submit-itunes-batch',
-    'edit-album-art-preview', 'edit-album-artwork-url', 'edit-album-name', 'btn-edit-album-upload'
+    'edit-album-art-preview', 'edit-album-artwork-url', 'edit-album-name', 'btn-edit-album-upload',
+    'track-discs-container', 'track-empty-state', 'track-album-header',
+    'breadcrumb-artist', 'breadcrumb-album', 'track-header-artwork',
+    'track-header-album-name', 'track-header-artist-name',
+    'track-header-release-date', 'track-header-total-tracks'
   ].forEach(id => { simElements[id] = makeMockEl(id); });
+  simElements['itunes-results-container'].classList.add('md:block');
+  simElements['itunes-preview-panel'].classList.add('hidden', 'md:flex');
 
   const simStorage = createMockStorage();
   const simApiClient = new ApiClient({ storageAdapter: simStorage, fetchFn: mockFetchOk });
@@ -2927,10 +2935,14 @@ console.log('\n[13] Code.js doPost JSON API ディスパッチャ・認証・11�
   const simStateHtml = fs.readFileSync(path.join(srcDir, 'ScriptsState.html'), 'utf8');
   const simUtilsHtml = fs.readFileSync(path.join(srcDir, 'ScriptsUtils.html'), 'utf8');
 
+  const simWindowListeners = {};
   const appCtx = vm.createContext({
     console, Date, Math, JSON, Set, Map, Error, Promise, String, Number, Array, Object,
     RegExp, encodeURIComponent, setTimeout, clearTimeout,
-    window: { innerWidth: 1280, addEventListener: () => {} },
+    window: {
+      innerWidth: 1280,
+      addEventListener: (type, fn) => { simWindowListeners[type] = fn; }
+    },
     document: {
       getElementById: (id) => simElements[id] || null,
       querySelectorAll: () => [],
@@ -3042,6 +3054,302 @@ console.log('\n[13] Code.js doPost JSON API ディスパッチャ・認証・11�
   assert(
     buildJsContent.includes('() => content') && buildJsContent.includes('() => combinedScriptBlock'),
     'build.js: String.replace の特殊置換記号 ($$ / $&) 耐性のためコールバック置換を使用していること (BUG-006)'
+  );
+
+  // [16] モバイル楽曲一覧・検索モーダルレイアウト視認性改善テスト (TASK-004 / v1.1.0)
+  console.log('\n[16] モバイル楽曲一覧・検索モーダルレイアウト視認性改善テスト (v1.1.0)');
+  const indexTemplateHtml = fs.readFileSync(path.join(srcDir, 'index.template.html'), 'utf8');
+  const trackDetailHtml = fs.readFileSync(path.join(srcDir, 'TrackDetail.html'), 'utf8');
+  const itunesModalSrcHtml = fs.readFileSync(path.join(srcDir, 'ItunesModal.html'), 'utf8');
+  const distHtmlForMobile = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
+
+  // 16.0 index.template.html <main> divide-y 不在 & md:divide-x 検証 (BUG-004)
+  const mainTagMatch = indexTemplateHtml.match(/<main\s+class="([^"]*)">/);
+  const mainClass = mainTagMatch ? mainTagMatch[1] : '';
+  assert(
+    !mainClass.includes('divide-y') && mainClass.includes('md:divide-x'),
+    'index.template.html: <main> にモバイル干渉する divide-y が含まれず md:divide-x のみであること (BUG-004)'
+  );
+
+  // 16.1 単一DOM原則（必須IDの重複不在 - btn-itunes-mobile-back 含む）
+  const trackDetailUniqueIds = [
+    'pane-tracks', 'tracks-mobile-back-bar', 'btn-back-to-albums',
+    'track-breadcrumb', 'breadcrumb-artist', 'breadcrumb-album',
+    'track-album-header', 'btn-zoom-track-artwork', 'track-header-artwork',
+    'track-header-album-name', 'track-header-artist-name',
+    'track-header-release-date', 'track-header-total-tracks',
+    'btn-edit-album', 'btn-add-track-to-album', 'btn-delete-album',
+    'track-discs-container', 'track-empty-state'
+  ];
+  trackDetailUniqueIds.forEach((id) => {
+    const srcMatches = trackDetailHtml.match(new RegExp(`id=["']${id}["']`, 'g')) || [];
+    const distMatches = distHtmlForMobile.match(new RegExp(`id=["']${id}["']`, 'g')) || [];
+    assert(srcMatches.length === 1 && distMatches.length === 1, `TrackDetail 単一DOM契約: id="${id}" が src/dist 双方で厳密に1箇所のみ存在すること`);
+  });
+
+  ['itunes-mobile-back-bar', 'btn-itunes-mobile-back'].forEach((id) => {
+    const srcMatches = itunesModalSrcHtml.match(new RegExp(`id=["']${id}["']`, 'g')) || [];
+    const distMatches = distHtmlForMobile.match(new RegExp(`id=["']${id}["']`, 'g')) || [];
+    assert(srcMatches.length === 1 && distMatches.length === 1, `ItunesModal 単一DOM契約: id="${id}" が src/dist 双方で厳密に1箇所のみ存在すること`);
+  });
+
+  // 16.2 TrackDetail.html 非sticky分離構造・パンくず省略・2xl:flex-row 引き上げ検証 (BUG-001, BUG-004, BUG-005)
+  const trackDetailNoComments = trackDetailHtml.replace(/<!--[\s\S]*?-->/g, '');
+  assert(
+    /id="pane-tracks"\s+class="[^"]*\boverflow-hidden\b[^"]*\bp-0\b/.test(trackDetailHtml) &&
+    /id="tracks-mobile-back-bar"\s+class="[^"]*\bflex-shrink-0\b/.test(trackDetailHtml) &&
+    !/\bsticky\b/.test(trackDetailNoComments) &&
+    !trackDetailHtml.includes('-mx-2.5') &&
+    !trackDetailHtml.includes('-mt-2.5') &&
+    /class="track-detail-scroll-body\s+flex-1\s+min-h-0\s+overflow-y-auto\s+p-2\.5\s+md:p-3\s+lg:p-5\s+flex\s+flex-col"/.test(trackDetailHtml),
+    'TrackDetail.html: #pane-tracks(overflow-hidden p-0)、#tracks-mobile-back-bar(非sticky・負マージンなし・flex-shrink-0)、.track-detail-scroll-body が仕様通りであること (BUG-004)'
+  );
+  assert(
+    /id="track-breadcrumb"\s+class="[^"]*\bmin-w-0\b/.test(trackDetailHtml) &&
+    /id="breadcrumb-artist"\s+class="[^"]*\bmin-w-0\b[^"]*\btruncate\b/.test(trackDetailHtml) &&
+    /id="breadcrumb-album"\s+class="[^"]*\bmin-w-0\b[^"]*\btruncate\b/.test(trackDetailHtml),
+    'TrackDetail.html: #track-breadcrumb と #breadcrumb-artist / #breadcrumb-album に min-w-0 truncate が設定されていること (BUG-005)'
+  );
+  assert(
+    /id="track-album-header"\s+class="[^"]*\bp-3\b[^"]*\b2xl:p-4\b[^"]*\bflex-col\b[^"]*\b2xl:flex-row\b/.test(trackDetailHtml) &&
+    !trackDetailHtml.includes('md:flex-row') &&
+    trackDetailHtml.includes('grid-cols-3 2xl:flex') &&
+    /id="track-header-artwork"[\s\S]*?w-20 h-20 lg:w-24 lg:h-24 xl:w-28 xl:h-28/.test(trackDetailHtml) &&
+    /id="track-header-album-name"\s+class="[^"]*\bbreak-words\b[^"]*\[overflow-wrap:anywhere\][^"]*\b2xl:truncate\b/.test(trackDetailHtml) &&
+    /id="track-header-artist-name"\s+class="[^"]*\bbreak-words\b[^"]*\[overflow-wrap:anywhere\][^"]*\b2xl:truncate\b/.test(trackDetailHtml),
+    'TrackDetail.html: #track-album-header が 2xl:flex-row / p-3 2xl:p-4 / 段階ジャケットサイズ / [overflow-wrap:anywhere] 2xl:truncate であること (BUG-001)'
+  );
+
+  ['btn-edit-album', 'btn-add-track-to-album', 'btn-delete-album'].forEach((btnId) => {
+    const btnBlockMatch = trackDetailHtml.match(new RegExp(`<button\\s+id="${btnId}"\\s+class="([^"]*)"[^>]*>([\\s\\S]*?)<\\/button>`));
+    assert(Boolean(btnBlockMatch), `TrackDetail.html: #${btnId} は id 属性が class 属性より前に配置されていること`);
+    const btnClass = btnBlockMatch ? btnBlockMatch[1] : '';
+    const btnInner = btnBlockMatch ? btnBlockMatch[2] : '';
+    const svgMatch = btnInner.match(/<svg\s+class="([^"]*)"/);
+    const svgClass = svgMatch ? svgMatch[1] : '';
+    const spanMatch = btnInner.match(/<span\s+class="([^"]*)">/);
+    const spanClass = spanMatch ? spanMatch[1] : '';
+    assert(
+      btnClass.includes('min-h-[44px]') &&
+      btnClass.includes('min-w-[44px]') &&
+      btnClass.includes('justify-center') &&
+      svgClass.includes('2xl:w-5') &&
+      svgClass.includes('2xl:h-5') &&
+      spanClass.includes('whitespace-nowrap') &&
+      !spanClass.includes('hidden'),
+      `TrackDetail.html: #${btnId} が 44px・中央揃え・2xlアイコン・ラベル常時表示を満たすこと`
+    );
+  });
+
+  // 16.3 ItunesModal.html 排他切替・フッター保護・table-fixed・44px 統一検証 (BUG-002, BUG-003, BUG-006)
+  assert(
+    itunesModalSrcHtml.includes('min-w-0 flex-wrap') &&
+    !itunesModalSrcHtml.includes('grid-rows-[minmax(0,2fr)_minmax(0,3fr)]') &&
+    /id="itunes-results-container"\s+class="[^"]*\bmd:block\b/.test(itunesModalSrcHtml) &&
+    /id="itunes-preview-panel"\s+class="[^"]*\bhidden\b[^"]*\bmd:flex\b/.test(itunesModalSrcHtml) &&
+    /id="itunes-preview-content"\s+class="hidden\s+md:flex-1\s+md:min-h-0\s+flex\s+flex-col"/.test(itunesModalSrcHtml) &&
+    itunesModalSrcHtml.includes('md:flex-1 md:min-h-0 md:overflow-y-auto') &&
+    /id="itunes-preview-album"\s+class="[^"]*\bbreak-words\b[^"]*\[overflow-wrap:anywhere\][^"]*\bmd:truncate\b/.test(itunesModalSrcHtml) &&
+    /id="itunes-preview-artist"\s+class="[^"]*\bbreak-words\b[^"]*\[overflow-wrap:anywhere\][^"]*\bmd:truncate\b/.test(itunesModalSrcHtml) &&
+    /<table\s+class="[^"]*\btable-fixed\b/.test(itunesModalSrcHtml) &&
+    /<th\s+class="[^"]*\bhidden\b[^"]*\bsm:table-cell\b[^"]*">アーティスト<\/th>/.test(itunesModalSrcHtml) &&
+    itunesModalSrcHtml.includes('flex-col sm:flex-row'),
+    'ItunesModal.html: 排他切替構造、md:flex-1 md:min-h-0、table-fixed、アーティスト列 hidden sm:table-cell、フッター flex-col sm:flex-row が設定されていること'
+  );
+
+  ['btn-close-itunes-modal', 'btn-itunes-search-submit', 'btn-itunes-mobile-back', 'btn-cancel-itunes-modal', 'btn-submit-itunes-batch'].forEach((btnId) => {
+    const match = itunesModalSrcHtml.match(new RegExp(`<button\\s+id="${btnId}"(?:\\s+disabled)?\\s+class="([^"]*)"`, 'i'));
+    assert(Boolean(match), `ItunesModal.html: #${btnId} は id 属性が class 属性より前に配置されていること`);
+    const cls = match ? match[1] : '';
+    const needsNowrap = btnId === 'btn-itunes-search-submit' || btnId === 'btn-cancel-itunes-modal' || btnId === 'btn-submit-itunes-batch';
+    const needsShrink = btnId === 'btn-close-itunes-modal' || needsNowrap;
+    assert(
+      cls.includes('min-h-[44px]') &&
+      (!needsNowrap || cls.includes('whitespace-nowrap')) &&
+      (!needsShrink || cls.includes('flex-shrink-0')),
+      `ItunesModal.html: #${btnId} に min-h-[44px]${needsNowrap ? ' / whitespace-nowrap' : ''}${needsShrink ? ' / flex-shrink-0' : ''} が設定されていること (BUG-002, BUG-006)`
+    );
+  });
+
+  // 16.4 VM サンドボックスでの動的レンダリング・ビュー切替・XSS耐性・BUG-007二重発火防止検証
+  const xssPayload = '<img src=x onerror=alert(1)>';
+  const longToken = 'SuperLongUnbrokenTrackName_' + 'A'.repeat(90);
+  simApp.store.setTracks([
+    {
+      albumArtist: 'Test Mobile Artist',
+      albumName: `Test Mobile Album ${xssPayload}`,
+      cdNumber: 1,
+      trackNumber: 1,
+      trackName: `${longToken} ${xssPayload}`,
+      trackArtist: `Featured Guest ${xssPayload}`,
+      releaseDate: '2026-11-14',
+      artworkUrl: ''
+    },
+    {
+      albumArtist: 'Test Mobile Artist',
+      albumName: `Test Mobile Album ${xssPayload}`,
+      cdNumber: 2,
+      trackNumber: 1,
+      trackName: 'Normal Track 2',
+      trackArtist: 'Test Mobile Artist',
+      releaseDate: '2026-11-14',
+      artworkUrl: ''
+    }
+  ]);
+  simApp.store.state.selectedArtist = 'Test Mobile Artist';
+  simApp.store.state.selectedAlbum = `Test Mobile Album ${xssPayload}`;
+  simApp.renderTrackDetail();
+
+  const renderedDiscHtml = simElements['track-discs-container'].innerHTML;
+  assert(
+    renderedDiscHtml.includes('id="track-row-1-1"') &&
+    renderedDiscHtml.includes('track-row-item') &&
+    renderedDiscHtml.includes('data-cd="1"') &&
+    renderedDiscHtml.includes('data-track-no="1"') &&
+    renderedDiscHtml.includes('min-h-[44px]') &&
+    renderedDiscHtml.includes('break-words [overflow-wrap:anywhere] md:truncate') &&
+    renderedDiscHtml.includes('hidden md:inline-block') &&
+    renderedDiscHtml.includes('hidden md:inline text-[11px]') &&
+    !renderedDiscHtml.includes('<img src=x') &&
+    renderedDiscHtml.includes('&lt;img src=x onerror=alert(1)&gt;') &&
+    simElements['track-header-album-name'].textContent === `Test Mobile Album ${xssPayload}` &&
+    simElements['track-header-artist-name'].textContent === 'Test Mobile Artist',
+    'App.renderTrackDetail(): トラック行の契約維持、[overflow-wrap:anywhere]、Track N/CD番号非表示化、XSS エスケープが機能すること'
+  );
+
+  // setItunesMobileView & openItunesModal & selectItunesAlbumForPreview & handleResetConnection 連動検証
+  simApp.setItunesMobileView('preview');
+  assert(
+    simApp.itunesMobileView === 'preview' &&
+    simElements['itunes-results-container'].classList.contains('hidden') &&
+    simElements['itunes-results-container'].classList.contains('md:block') &&
+    !simElements['itunes-preview-panel'].classList.contains('hidden') &&
+    simElements['itunes-preview-panel'].classList.contains('flex') &&
+    simElements['itunes-preview-panel'].classList.contains('md:flex'),
+    'App.setItunesMobileView("preview"): モバイルで検索結果を隠しプレビューを表示しつつ PC用 md:block/md:flex を維持すること'
+  );
+
+  simApp.openItunesModal();
+  assert(
+    simApp.itunesMobileView === 'results' &&
+    !simElements['itunes-results-container'].classList.contains('hidden') &&
+    simElements['itunes-preview-panel'].classList.contains('hidden'),
+    'App.openItunesModal(): モーダル起動時に常に検索結果ビュー (results) へリセットされること'
+  );
+
+  simApp.store.state.itunesSearchResults = [
+    { source: 'itunes', collectionId: 999999, albumName: 'Test Album', albumArtist: 'Test Artist', trackCount: 1 }
+  ];
+  simApp.renderItunesResults();
+  assert(
+    simElements['itunes-results-container'].innerHTML.includes('itunes-result-item min-h-[44px]'),
+    'App.renderItunesResults(): 検索候補アイテムに min-h-[44px] が適用されていること (BUG-006)'
+  );
+
+  // selectItunesAlbumForPreview() 検証
+  const origLookupItunes = simApp.api.lookupItunesAlbum.bind(simApp.api);
+  simApp.api.lookupItunesAlbum = async () => ({
+    albumDetail: {
+      albumName: `Preview Album ${xssPayload}`,
+      albumArtist: 'Preview Artist',
+      releaseDate: '2026-11-14',
+      artworkUrl100: '',
+      tracks: [
+        {
+          cdNumber: 1,
+          trackNumber: 1,
+          trackName: `${longToken} ${xssPayload}`,
+          trackArtist: `Guest ${xssPayload}`,
+          mediumFormat: 'CD'
+        }
+      ]
+    }
+  });
+  await simApp.selectItunesAlbumForPreview(999999, 'itunes');
+  simApp.api.lookupItunesAlbum = origLookupItunes;
+
+  const previewTbodyHtml = simElements['itunes-preview-tracks-tbody'].innerHTML;
+  assert(
+    simApp.itunesMobileView === 'preview' &&
+    !simElements['itunes-preview-panel'].classList.contains('hidden') &&
+    simElements['itunes-results-container'].classList.contains('hidden') &&
+    !previewTbodyHtml.includes('max-w-[150px]') &&
+    !previewTbodyHtml.includes('max-w-[100px]') &&
+    !previewTbodyHtml.includes('whitespace-nowrap') &&
+    previewTbodyHtml.includes('break-words [overflow-wrap:anywhere]') &&
+    previewTbodyHtml.includes('block sm:hidden') &&
+    previewTbodyHtml.includes('hidden sm:table-cell') &&
+    !previewTbodyHtml.includes('<img src=x') &&
+    previewTbodyHtml.includes('&lt;img src=x onerror=alert(1)&gt;'),
+    'App.selectItunesAlbumForPreview(): プレビュービュー遷移、CD whitespace-nowrap除去、[overflow-wrap:anywhere]、XSS エスケープが機能すること'
+  );
+
+  await simApp.handleResetConnection();
+  assert(
+    simApp.itunesMobileView === 'results' &&
+    !simElements['itunes-results-container'].classList.contains('hidden') &&
+    simElements['itunes-preview-panel'].classList.contains('hidden'),
+    'App.handleResetConnection(): 接続リセット時に ItunesModal モバイルビューが results へ初期化されること'
+  );
+
+  // handleGlobalSearch() 全候補行 (artist / album / track) 検証（handleResetConnection 後のため再度セット）
+  simApp.store.setTracks([
+    {
+      albumArtist: 'Test Mobile Artist',
+      albumName: `Test Mobile Album ${xssPayload}`,
+      cdNumber: 1,
+      trackNumber: 1,
+      trackName: `${longToken} ${xssPayload}`,
+      trackArtist: `Featured Guest ${xssPayload}`,
+      releaseDate: '2026-11-14',
+      artworkUrl: ''
+    }
+  ]);
+  simApp.handleGlobalSearch('Test Mobile', 'mobile');
+  const mobileSearchHtml = simElements['mobile-search-results'].innerHTML;
+  const searchOptionItems = mobileSearchHtml.match(/class="search-dropdown-item[^"]*"/g) || [];
+  assert(
+    searchOptionItems.length >= 3 &&
+    searchOptionItems.every((cls) => cls.includes('min-h-[44px]')) &&
+    mobileSearchHtml.includes('data-type="artist"') &&
+    mobileSearchHtml.includes('data-type="album"') &&
+    mobileSearchHtml.includes('data-type="track"') &&
+    mobileSearchHtml.includes('flex-1 min-w-0') &&
+    mobileSearchHtml.includes('break-words [overflow-wrap:anywhere] md:truncate') &&
+    !mobileSearchHtml.includes('<img src=x') &&
+    mobileSearchHtml.includes('&lt;img src=x onerror=alert(1)&gt;'),
+    'App.handleGlobalSearch(): アーティスト/アルバム/楽曲の全候補行に min-h-[44px] / [overflow-wrap:anywhere] と XSS エスケープが適用されていること (BUG-006)'
+  );
+
+  // BUG-007: window キャプチャエラーリスナーと個別 img.onerror の二重発火防止検証
+  const testDriveUrl = 'https://drive.google.com/file/d/AbCdEfGhIjKlMnOpQrStUvWxYz12345/view';
+  const imgBound = makeMockEl('track-header-artwork', {
+    tagName: 'IMG',
+    src: 'https://lh3.googleusercontent.com/d/AbCdEfGhIjKlMnOpQrStUvWxYz12345=s800'
+  });
+  imgBound.hasAttribute = (k) => k === 'data-artwork' || k === 'data-error-step';
+  imgBound.setAttribute('data-artwork', testDriveUrl);
+  imgBound.setAttribute('data-error-step', '0');
+  imgBound.onerror = () => appCtx.window.Utils.handleImageError(imgBound);
+
+  // キャプチャフェーズと要素自身の onerror が両方発火するブラウザ挙動を再現
+  assert(typeof simWindowListeners.error === 'function', 'App.bindEvents(): window error キャプチャリスナーが登録されていること');
+  simWindowListeners.error({ target: imgBound });
+  imgBound.onerror();
+  assert(
+    imgBound.getAttribute('data-error-step') === '1' &&
+    imgBound.src.includes('drive.google.com/thumbnail?id=AbCdEfGhIjKlMnOpQrStUvWxYz12345'),
+    'BUG-007 回帰: 個別 onerror 登録済み画像で 1回のエラー発生時に Step 0→1 のみ遷移し、Drive 予備 URL がスキップされないこと'
+  );
+
+  const imgUnbound = makeMockEl('unbound-artwork', { tagName: 'IMG', src: 'bad-url', onerror: null });
+  imgUnbound.hasAttribute = (k) => k === 'data-artwork' || k === 'data-error-step';
+  imgUnbound.setAttribute('data-artwork', testDriveUrl);
+  imgUnbound.setAttribute('data-error-step', '0');
+  simWindowListeners.error({ target: imgUnbound });
+  assert(
+    imgUnbound.getAttribute('data-error-step') === '1',
+    'BUG-007 保険動作: 個別 onerror 未登録画像では window キャプチャリスナーが Step 0→1 フォールバックを実行すること'
   );
 
   console.log('\n==================================================');
