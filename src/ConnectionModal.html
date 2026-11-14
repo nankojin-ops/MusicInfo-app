@@ -1,0 +1,116 @@
+<!-- GAS API 接続設定モーダル -->
+<div id="modal-connection" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 bg-slate-950/85 backdrop-blur-sm">
+  <div class="w-full max-w-lg max-h-[92vh] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-modalScale">
+
+    <!-- モーダルヘッダー -->
+    <div class="px-4 py-3 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0 gap-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <button id="btn-close-connection-modal" type="button" class="min-h-[44px] min-w-[44px] text-slate-400 hover:text-slate-200 p-2 -ml-2 rounded-lg hover:bg-slate-800 transition flex items-center justify-center flex-shrink-0" title="閉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="w-6 h-6 rounded bg-indigo-600 flex items-center justify-center text-white flex-shrink-0">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+            </svg>
+          </div>
+          <h3 class="text-sm md:text-base font-bold text-slate-100 truncate">バックエンド接続設定</h3>
+        </div>
+      </div>
+      <span id="connection-current-mode-badge" class="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 whitespace-nowrap flex-shrink-0">
+        デモ / ローカルモード
+      </span>
+    </div>
+
+    <!-- モーダル本文 (Enter誤送信抑止) -->
+    <form id="form-connection" onsubmit="event.preventDefault();" class="p-4 md:p-5 space-y-4 overflow-y-auto">
+
+      <!-- モード説明と GAS 準備ガイド -->
+      <div class="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3.5 text-xs text-slate-300 space-y-2">
+        <div class="font-bold text-slate-200 flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          GAS バックエンド連携の準備手順
+        </div>
+        <ol class="list-decimal list-inside space-y-1 text-slate-400 pl-1 leading-relaxed">
+          <li>GAS プロジェクトの「スクリプトプロパティ」に <code class="px-1 py-0.5 bg-slate-800 text-indigo-300 rounded">API_TOKEN</code>（任意の長い秘密文字列）を設定</li>
+          <li>「ウェブアプリ」としてデプロイ（実行ユーザー: <span class="text-slate-200 font-medium">自分</span> / アクセス: <span class="text-slate-200 font-medium">全員（匿名含む）</span>）</li>
+          <li>発行された <code class="px-1 py-0.5 bg-slate-800 text-indigo-300 rounded">/exec</code> URL と <code class="px-1 py-0.5 bg-slate-800 text-indigo-300 rounded">API_TOKEN</code> を以下に入力して保存</li>
+        </ol>
+        <p class="text-[11px] text-amber-300/90 pt-1.5 border-t border-slate-800/80 leading-relaxed">
+          ※接続設定はお使いのブラウザの <code class="px-1 bg-slate-800 rounded">localStorage</code> に保存されます。共有端末やネットカフェ等では、利用後に必ず「ローカルモードへリセット」で設定を削除してください。
+        </p>
+      </div>
+
+      <!-- GAS Web App URL 入力欄 -->
+      <div class="space-y-1.5">
+        <label for="connection-endpoint-url" class="block text-xs font-semibold text-slate-300">
+          GAS Web App URL (/exec) <span class="text-rose-500">*</span>
+        </label>
+        <input type="url" id="connection-endpoint-url" autocomplete="off" spellcheck="false"
+          placeholder="https://script.google.com/macros/s/.../exec"
+          class="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition font-mono">
+      </div>
+
+      <!-- API_TOKEN 入力欄 -->
+      <div class="space-y-1.5">
+        <label for="connection-api-token" class="block text-xs font-semibold text-slate-300">
+          API_TOKEN <span class="text-rose-500">*</span>
+        </label>
+        <div class="flex items-center gap-1.5">
+          <input type="password" id="connection-api-token" autocomplete="off" spellcheck="false"
+            placeholder="GAS スクリプトプロパティに設定した API_TOKEN"
+            class="flex-1 min-w-0 px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-xs md:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition font-mono">
+          <button id="btn-toggle-token-visibility" type="button" title="トークンの表示/非表示を切り替え" aria-label="トークンの表示/非表示を切り替え"
+            class="min-h-[44px] min-w-[44px] px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg transition flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 接続テスト・検証結果ステータス表示領域 -->
+      <div id="connection-status-message" class="hidden rounded-lg p-3 text-xs font-medium leading-relaxed border"></div>
+
+      <!-- 主操作ボタン群 (WCAG 44pxタップ領域確保) -->
+      <div class="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
+        <button id="btn-test-connection" type="button"
+          class="min-h-[44px] px-4 py-2 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-800 disabled:text-slate-600 border border-slate-700 rounded-lg transition flex items-center justify-center gap-2">
+          <span class="connection-test-btn-text">接続テスト</span>
+          <div class="connection-test-spinner hidden w-4 h-4 border-2 border-slate-300 border-t-transparent rounded-full animate-spin"></div>
+        </button>
+
+        <button id="btn-save-connection" type="button"
+          class="min-h-[44px] px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-lg shadow transition flex items-center justify-center gap-2">
+          <span class="connection-save-btn-text">保存して GAS に接続</span>
+          <div class="connection-save-spinner hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+        </button>
+      </div>
+
+      <!-- ローカルモード操作 / キャンセルボタン群 -->
+      <div class="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btn-reset-connection" type="button"
+            class="min-h-[44px] px-3 py-2 text-xs font-medium text-amber-300 hover:text-amber-200 bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/60 rounded-lg transition flex items-center justify-center">
+            ローカルモードへリセット
+          </button>
+          <button id="btn-reset-demo-data" type="button"
+            class="min-h-[44px] px-3 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700 rounded-lg transition flex items-center justify-center">
+            デモデータ初期化
+          </button>
+        </div>
+
+        <button id="btn-cancel-connection-modal" type="button"
+          class="min-h-[44px] min-w-[80px] px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition flex items-center justify-center">
+          閉じる
+        </button>
+      </div>
+    </form>
+
+  </div>
+</div>

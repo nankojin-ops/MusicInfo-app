@@ -38,29 +38,14 @@ function it(desc, fn) {
 // --------------------------------------------------
 console.log('[QA-1] Config クラスの境界値・型検証');
 
-it('ALLOW_EMBEDDING の多様な真偽値表現 (Secure by Default)', () => {
-  // Mock PropertiesService
-  const testCases = [
-    { input: undefined, expected: false },
-    { input: null, expected: false },
-    { input: '', expected: false },
-    { input: '   ', expected: false },
-    { input: 'false', expected: false },
-    { input: 'FALSE', expected: false },
-    { input: '0', expected: false },
-    { input: 'random_text', expected: false },
-    { input: 'true', expected: true },
-    { input: 'TRUE', expected: true },
-    { input: ' 1 ', expected: true },
-    { input: 1, expected: true },
-    { input: true, expected: true }
-  ];
-
-  testCases.forEach(tc => {
+it('API_TOKEN の多様な境界値・空白トリム・API_DISABLED 例外検証 (Secure by Default)', () => {
+  // 1. 未設定 / 空文字 / 空白のみ -> hasApiToken() === false かつ getApiToken() で API_DISABLED
+  const invalidCases = [undefined, null, '', '   ', '\t\n'];
+  invalidCases.forEach(tc => {
     globalThis.PropertiesService = {
       getScriptProperties: () => ({
         getProperties: () => ({
-          ALLOW_EMBEDDING: tc.input,
+          API_TOKEN: tc,
           SPREADSHEET_ID: 'test-ss-id',
           DRIVE_FOLDER_ID: 'test-folder-id'
         })
@@ -68,11 +53,41 @@ it('ALLOW_EMBEDDING の多様な真偽値表現 (Secure by Default)', () => {
     };
     const cfg = new Config();
     assert.strictEqual(
-      cfg.isEmbeddingAllowed(),
-      tc.expected,
-      `Input "${tc.input}" should evaluate to ${tc.expected}, got ${cfg.isEmbeddingAllowed()}`
+      cfg.hasApiToken(),
+      false,
+      `Input ${JSON.stringify(tc)} should evaluate hasApiToken() to false`
+    );
+    assert.throws(
+      () => cfg.getApiToken(),
+      (err) => err && err.code === 'API_DISABLED',
+      `Input ${JSON.stringify(tc)} should throw API_DISABLED on getApiToken()`
     );
   });
+
+  // 2. 有効値・前後空白トリム・型変換
+  const validCases = [
+    { input: 'secret-token-123', expected: 'secret-token-123' },
+    { input: '  trimmed-token-456 \n', expected: 'trimmed-token-456' },
+    { input: 12345678, expected: '12345678' }
+  ];
+  validCases.forEach(tc => {
+    globalThis.PropertiesService = {
+      getScriptProperties: () => ({
+        getProperties: () => ({
+          API_TOKEN: tc.input,
+          SPREADSHEET_ID: 'test-ss-id',
+          DRIVE_FOLDER_ID: 'test-folder-id'
+        })
+      })
+    };
+    const cfg = new Config();
+    assert.strictEqual(cfg.hasApiToken(), true, `Input "${tc.input}" should have hasApiToken() === true`);
+    assert.strictEqual(cfg.getApiToken(), tc.expected, `Input "${tc.input}" should trim to "${tc.expected}"`);
+  });
+
+  // 3. 旧 isEmbeddingAllowed() が削除されていること
+  const cfgCheck = new Config();
+  assert.strictEqual(typeof cfgCheck.isEmbeddingAllowed, 'undefined', 'isEmbeddingAllowed() should be removed');
 });
 
 // --------------------------------------------------
@@ -226,7 +241,7 @@ it('リサイズフォールバック時に PNG 元画像DataURLと uploadMimeTy
   assert.strictEqual(normalResult.fileName.endsWith('.jpg'), true);
 
   // 2. 障害ケース: PNG画像を選択したが、クライアントでUtils.resizeImageが失敗し元画像DataURLが返却された場合
-  // ScriptsApp.html 1689-1690行目では uploadMimeType = 'image/jpeg' に上書きされる
+  // 旧実装の ScriptsApp.html handleImageUpload では uploadMimeType = 'image/jpeg' に上書きされていた障害を再現
   const fallbackPngDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   
   let caughtError = null;

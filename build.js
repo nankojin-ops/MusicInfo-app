@@ -1,25 +1,20 @@
 /**
  * MusicInfo-app フロントエンドバンドルスクリプト
  * src/ 配下の各 HTML / コンポーネント / スクリプト部品を結合し、
- * GAS で高速かつ安定して動作する単一の src/index.html を生成します。
+ * GitHub Pages で配信可能な単一の dist/index.html と dist/.nojekyll を生成します。
  */
 const fs = require('fs');
 const path = require('path');
 
 const SRC_DIR = path.join(__dirname, 'src');
+const DIST_DIR = path.join(__dirname, 'dist');
 const TEMPLATE_FILE = path.join(SRC_DIR, 'index.template.html');
-const OUTPUT_FILE = path.join(SRC_DIR, 'index.html');
+const OUTPUT_FILE = path.join(DIST_DIR, 'index.html');
+const NOJEKYLL_FILE = path.join(DIST_DIR, '.nojekyll');
 
-// もし index.template.html が無ければ、現在の index.html の原型をテンプレートとして保存
 if (!fs.existsSync(TEMPLATE_FILE)) {
-  const current = fs.readFileSync(OUTPUT_FILE, 'utf8');
-  if (current.includes("include('")) {
-    fs.writeFileSync(TEMPLATE_FILE, current, 'utf8');
-    console.log('Created index.template.html from current index.html');
-  } else {
-    console.error('index.template.html does not exist and index.html is already bundled!');
-    process.exit(1);
-  }
+  console.error('エラー: テンプレートファイル src/index.template.html が存在しません。');
+  process.exit(1);
 }
 
 let template = fs.readFileSync(TEMPLATE_FILE, 'utf8');
@@ -36,7 +31,8 @@ const htmlIncludes = [
   'EditAlbumModal',
   'ImageModal',
   'DriveArtworkModal',
-  'DeleteConfirmModal'
+  'DeleteConfirmModal',
+  'ConnectionModal'
 ];
 
 htmlIncludes.forEach(name => {
@@ -44,7 +40,7 @@ htmlIncludes.forEach(name => {
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, 'utf8');
     const regex = new RegExp(`<\\?!=\\s*include\\('${name}'\\);?\\s*\\?>`, 'g');
-    template = template.replace(regex, content);
+    template = template.replace(regex, () => content);
   }
 });
 
@@ -195,6 +191,57 @@ function stripComments(code) {
   return result;
 }
 
+/**
+ * Node.js テスト用の `if (typeof module !== 'undefined' && module.exports) { ... }` ガードを
+ * ネストした波括弧（例: `module.exports = { A, B };`）を含めて安全に除去します。
+ */
+function stripModuleExportsGuards(code) {
+  const guardPattern = /if\s*\(\s*typeof\s+module\s*!==\s*['"]undefined['"]\s*&&\s*module\.exports\s*\)\s*\{/g;
+  let result = '';
+  let lastIndex = 0;
+  let match;
+
+  while ((match = guardPattern.exec(code)) !== null) {
+    result += code.slice(lastIndex, match.index);
+
+    // match の末尾の '{' からブレース深度をカウントして対応する '}' を探す
+    let i = guardPattern.lastIndex;
+    let depth = 1;
+    let quote = null;
+    let escape = false;
+
+    while (i < code.length && depth > 0) {
+      const ch = code[i];
+      if (quote) {
+        if (ch === '\\') {
+          escape = !escape;
+        } else {
+          if (ch === quote && !escape) {
+            quote = null;
+          }
+          escape = false;
+        }
+      } else {
+        if (ch === "'" || ch === '"' || ch === '`') {
+          quote = ch;
+          escape = false;
+        } else if (ch === '{') {
+          depth++;
+        } else if (ch === '}') {
+          depth--;
+        }
+      }
+      i++;
+    }
+
+    lastIndex = i;
+    guardPattern.lastIndex = i;
+  }
+
+  result += code.slice(lastIndex);
+  return result;
+}
+
 // 2. JavaScript スクリプトのインクルード（ScriptsUtils, ScriptsApiClient, ScriptsState, ScriptsApp）
 const scriptFiles = [
   'ScriptsUtils',
@@ -214,11 +261,11 @@ scriptFiles.forEach(name => {
     if (content.endsWith('</script>')) content = content.substring(0, content.length - 9);
     content = content.trim();
 
-    // コメントを除去（GASサニタイザーによるマルチバイト文字位置ズレ防止）
+    // コメントを除去
     content = stripComments(content);
 
-    // Node.js テスト用 module.exports ガード文を除去（ブラウザ環境のクリーン化）
-    content = content.replace(/if\s*\(typeof module\s*!==\s*['"]undefined['"]\s*&&\s*module\.exports\)\s*\{[\s\S]*?\}/g, '');
+    // Node.js テスト用 module.exports ガード文を除去（ネストした {} にも対応）
+    content = stripModuleExportsGuards(content);
 
     // 空白文字のトリム
     content = content.trim();
@@ -280,15 +327,13 @@ ${startAppCode}
   </script>`;
 
 if (scriptSectionRegex.test(template)) {
-  template = template.replace(scriptSectionRegex, combinedScriptBlock + '\n');
+  template = template.replace(scriptSectionRegex, () => combinedScriptBlock + '\n');
 } else {
   console.warn('Could not find full script include section in template; falling back to replacement before </body>');
-  template = template.replace('</body>', `${combinedScriptBlock}\n</body>`);
+  template = template.replace('</body>', () => `${combinedScriptBlock}\n</body>`);
 }
 
 // 3. グローバルエラーキャッチャー
-// 外部スクリプトやGoogle内部処理（OAuthダイアログ等）のエラーで画面表示が破壊されないよう、
-// コンソール出力のみに留める（アプリ自体の起動エラーは startApp 内で処理）
 const globalErrorScript = `
   <script>
     // グローバルエラーキャッチャー（コンソールログ出力のみ）
@@ -298,18 +343,18 @@ const globalErrorScript = `
   </script>
 `;
 
-// 既存のグローバルエラーキャッチャーがあれば置換、なければ </head> 直前に挿入（<base>と<meta charset>の最優先配置を維持）
+// 既存のグローバルエラーキャッチャーがあれば置換、なければ </head> 直前に挿入
 const existingCatcherRegex = /<script>\s*\/\/\s*グローバル(?:初期化)?エラーキャッチャー[\s\S]*?<\/script>/i;
 if (existingCatcherRegex.test(template)) {
-  template = template.replace(existingCatcherRegex, globalErrorScript.trim());
+  template = template.replace(existingCatcherRegex, () => globalErrorScript.trim());
 } else if (template.includes('</head>')) {
-  template = template.replace('</head>', `${globalErrorScript.trim()}\n</head>`);
+  template = template.replace('</head>', () => `${globalErrorScript.trim()}\n</head>`);
 }
 
-// 4. 自動生成物警告バナーの付与（先祖返り・直接編集の抑止）
+// 4. 自動生成物警告バナーの付与（直接編集の抑止）
 const banner = `<!-- ========================================================================= -->
 <!-- WARNING: このファイルは build.js によって自動生成されたファイルです。     -->
-<!-- 直接編集しないでください。編集は index.template.html または部品ファイルへ -->
+<!-- 直接編集しないでください。編集は src/index.template.html または部品へ。   -->
 <!-- ========================================================================= -->\n`;
 
 let outputHtml = template;
@@ -317,6 +362,8 @@ if (!outputHtml.startsWith('<!-- ===============================================
   outputHtml = banner + outputHtml;
 }
 
-// 出力ファイル書き込み
+// dist ディレクトリ作成および出力ファイル書き込み（.nojekyll 含む）
+fs.mkdirSync(DIST_DIR, { recursive: true });
 fs.writeFileSync(OUTPUT_FILE, outputHtml, 'utf8');
-console.log(`Successfully built bundled ${OUTPUT_FILE} (${outputHtml.length} characters)`);
+fs.writeFileSync(NOJEKYLL_FILE, '', 'utf8');
+console.log(`Successfully built bundled ${OUTPUT_FILE} (${outputHtml.length} characters) and ${NOJEKYLL_FILE}`);

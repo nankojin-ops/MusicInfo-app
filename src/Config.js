@@ -16,10 +16,9 @@ class Config {
     this.musicBrainzEnabled = (rawMbEnabled === 'false' || rawMbEnabled === '0')
       ? false
       : Boolean(Config.CONSTANTS.MUSICBRAINZ.ENABLED);
-    const rawAllowEmbedding = props.ALLOW_EMBEDDING !== undefined && props.ALLOW_EMBEDDING !== null
-      ? String(props.ALLOW_EMBEDDING).trim().toLowerCase()
+    this.apiToken = (props.API_TOKEN !== undefined && props.API_TOKEN !== null)
+      ? String(props.API_TOKEN).trim()
       : '';
-    this.allowEmbedding = (rawAllowEmbedding === 'true' || rawAllowEmbedding === '1');
   }
 
   /**
@@ -73,11 +72,24 @@ class Config {
   }
 
   /**
-   * iframe 埋め込み (X-Frame-Options: ALLOWALL) を許可するかどうか
-   * @returns {boolean} デフォルト false (DEFAULT モード)
+   * 外部 JSON API 用の API_TOKEN が設定済みか判定
+   * @returns {boolean}
    */
-  isEmbeddingAllowed() {
-    return this.allowEmbedding;
+  hasApiToken() {
+    return Boolean(this.apiToken);
+  }
+
+  /**
+   * 外部 JSON API 用の API_TOKEN を取得（未設定時は例外送出）
+   * @returns {string}
+   */
+  getApiToken() {
+    if (!this.apiToken) {
+      const err = new Error('サーバー側に API_TOKEN が設定されていないため、外部 API アクセスは無効化されています。');
+      err.code = 'API_DISABLED';
+      throw err;
+    }
+    return this.apiToken;
   }
 
   /**

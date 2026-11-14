@@ -1,46 +1,175 @@
 /**
- * Web Apps エントリーポイント
+ * JSON レスポンスを生成するヘルパー
+ * @param {Object} obj
+ * @returns {GoogleAppsScript.Content.TextOutput}
+ */
+function createJsonResponse_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * エラー用 JSON レスポンスを生成するヘルパー
+ * @param {string} message
+ * @param {string} code
+ * @returns {GoogleAppsScript.Content.TextOutput}
+ */
+function createErrorResponse_(message, code) {
+  return createJsonResponse_({
+    success: false,
+    error: message,
+    code: code,
+    timestamp: new Date().toISOString()
+  });
+}
+
+/**
+ * タイミング攻撃に耐性のある定数時間文字列比較
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function constantTimeEqual_(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  const maxLen = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < maxLen; i++) {
+    const codeA = i < a.length ? a.charCodeAt(i) : 0;
+    const codeB = i < b.length ? b.charCodeAt(i) : 0;
+    diff |= (codeA ^ codeB);
+  }
+  return diff === 0;
+}
+
+/**
+ * オブジェクトまたはスカラから単一スカラ引数（string | number）を安全に抽出
+ * 配列やネストオブジェクトの "[object Object]" 暗黙文字列化を防止する
+ * @param {unknown} payload
+ * @param {string} key
+ * @returns {string|number}
+ */
+function extractScalarArg_(payload, key) {
+  let val = payload;
+  if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
+    val = Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : undefined;
+  }
+  if (typeof val === 'string' || typeof val === 'number') {
+    return val;
+  }
+  return '';
+}
+
+/**
+ * Web Apps GET エントリーポイント（API ヘルスチェック専用）
  * @param {GoogleAppsScript.Events.DoGet} e
- * @returns {GoogleAppsScript.HTML.HtmlOutput}
+ * @returns {GoogleAppsScript.Content.TextOutput}
  */
 function doGet(e) {
-  if (e && e.parameter && e.parameter.raw === 'true') {
-    return ContentService.createTextOutput(
-      HtmlService.createHtmlOutputFromFile('index').getContent()
-    ).setMimeType(ContentService.MimeType.TEXT);
-  }
-
-  let allowEmbedding = false;
+  let apiConfigured = false;
   try {
     const ConfigCls = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
     if (ConfigCls) {
       const config = new ConfigCls();
-      allowEmbedding = (typeof config.isEmbeddingAllowed === 'function') && config.isEmbeddingAllowed();
+      apiConfigured = (typeof config.hasApiToken === 'function') && config.hasApiToken();
     }
   } catch (err) {
     console.warn('Config読み込みエラー (doGet):', err);
   }
 
-  const frameMode = allowEmbedding
-    ? HtmlService.XFrameOptionsMode.ALLOWALL
-    : HtmlService.XFrameOptionsMode.DEFAULT;
-
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('MusicInfo Manager - 音楽CD・アルバムコレクション管理')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
-    .setXFrameOptionsMode(frameMode);
+  return createJsonResponse_({
+    success: true,
+    data: {
+      service: 'MusicInfo-app',
+      role: 'api-only',
+      status: 'ok',
+      apiConfigured: apiConfigured
+    },
+    timestamp: new Date().toISOString()
+  });
 }
 
 /**
- * HTMLService テンプレート内インクルードヘルパー（後方互換用）
- * @param {string} filename 
- * @returns {string} ファイルの内容HTML文字列
+ * Web Apps POST エントリーポイント（JSON API ディスパッチャ）
+ * @param {GoogleAppsScript.Events.DoPost} e
+ * @returns {GoogleAppsScript.Content.TextOutput}
  */
-function include(filename) {
+function doPost(e) {
+  const MAX_PAYLOAD_CHARS = 10 * 1024 * 1024; // 10MB 文字数上限
+
+  // 1. リクエスト存在・サイズ上限検証
+  if (!e || !e.postData || typeof e.postData.contents !== 'string') {
+    return createErrorResponse_('リクエストボディが空です。', 'INVALID_REQUEST');
+  }
+  const rawContents = e.postData.contents;
+  if (!rawContents.trim()) {
+    return createErrorResponse_('リクエストボディが空です。', 'INVALID_REQUEST');
+  }
+  if (rawContents.length > MAX_PAYLOAD_CHARS) {
+    return createErrorResponse_('リクエストサイズが上限（10MB）を超えています。', 'INVALID_REQUEST');
+  }
+
+  // 2. JSON パース・構造検証
+  let body;
   try {
-    return HtmlService.createHtmlOutputFromFile(filename).getContent();
-  } catch (e) {
-    return HtmlService.createTemplateFromFile(filename).getRawContent();
+    body = JSON.parse(rawContents);
+  } catch (parseErr) {
+    return createErrorResponse_('リクエストボディの JSON 形式が不正です。', 'INVALID_REQUEST');
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return createErrorResponse_('リクエストボディは JSON オブジェクトである必要があります。', 'INVALID_REQUEST');
+  }
+
+  // 3. サーバー側 API_TOKEN 設定確認 (Secure by Default)
+  let config;
+  try {
+    const ConfigCls = (typeof Config !== 'undefined') ? Config : (typeof require !== 'undefined' ? require('./Config') : null);
+    if (!ConfigCls) {
+      return createErrorResponse_('設定クラスを初期化できません。', 'API_DISABLED');
+    }
+    config = new ConfigCls();
+  } catch (cfgErr) {
+    console.error('Config初期化エラー (doPost):', cfgErr);
+    return createErrorResponse_('設定の読み込みに失敗しました。', 'API_DISABLED');
+  }
+
+  if (typeof config.hasApiToken !== 'function' || !config.hasApiToken()) {
+    return createErrorResponse_('サーバー側に API_TOKEN が設定されていないため、外部 API アクセスは無効化されています。', 'API_DISABLED');
+  }
+  const expectedToken = config.getApiToken();
+
+  // 4. トークン検証（定数時間比較）
+  if (typeof body.token !== 'string' || body.token.length === 0 || !constantTimeEqual_(body.token, expectedToken)) {
+    return createErrorResponse_('認証に失敗しました。API_TOKEN が未指定または一致しません。', 'UNAUTHORIZED');
+  }
+
+  // 5. アクション検証（ホワイトリスト & プロトタイプ汚染防御）
+  const ACTION_HANDLERS = {
+    getAllData: () => apiGetAllData(),
+    searchAlbums: (p) => apiSearchAlbums(extractScalarArg_(p, 'keyword')),
+    searchItunes: (p) => apiSearchItunes(extractScalarArg_(p, 'keyword')),
+    lookupItunesAlbum: (p) => apiLookupItunesAlbum(extractScalarArg_(p, 'collectionId')),
+    lookupMusicBrainzRelease: (p) => apiLookupMusicBrainzRelease(extractScalarArg_(p, 'mbid')),
+    saveAlbumBatch: (p) => apiSaveAlbumBatch(p),
+    saveTrackSingle: (p) => apiSaveTrackSingle(p),
+    updateAlbumBatch: (p) => apiUpdateAlbumBatch(p),
+    uploadArtwork: (p) => apiUploadArtwork(p),
+    resolveDriveArtwork: (p) => apiResolveDriveArtwork(p),
+    deleteAlbumsBatch: (p) => apiDeleteAlbumsBatch(p)
+  };
+
+  if (typeof body.action !== 'string' || !Object.prototype.hasOwnProperty.call(ACTION_HANDLERS, body.action)) {
+    return createErrorResponse_(`未定義のアクションが指定されました: ${String(body.action || '')}`, 'UNKNOWN_ACTION');
+  }
+
+  // 6. 業務 RPC 実行
+  try {
+    const result = ACTION_HANDLERS[body.action](body.payload);
+    return createJsonResponse_(result);
+  } catch (err) {
+    console.error(`doPost アクション実行エラー [${body.action}]:`, err);
+    return createErrorResponse_(err.message || 'API実行中に予期しないエラーが発生しました。', err.code || 'INTERNAL_ERROR');
   }
 }
 
@@ -326,7 +455,9 @@ function apiDeleteAlbumsBatch(payload) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     doGet,
-    include,
+    doPost,
+    constantTimeEqual_,
+    extractScalarArg_,
     getMusicService,
     apiGetAllData,
     apiSearchAlbums,

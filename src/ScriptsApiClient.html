@@ -1,143 +1,1321 @@
 <script>
 /**
- * GAS 非同期通信クライアントクラス
+ * 安全なストレージラッパー生成ヘルパー
+ * localStorage が存在しない環境やプライベートブラウズ等で例外を投げる場合は
+ * インメモリ Map にフォールバックする。
+ * @param {Object|null} customStorage
+ */
+function createSafeStorage_(customStorage = null) {
+  if (customStorage && typeof customStorage.getItem === 'function' && typeof customStorage.setItem === 'function') {
+    return customStorage;
+  }
+
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const testKey = '__musicinfo_storage_test__';
+      window.localStorage.setItem(testKey, '1');
+      window.localStorage.removeItem(testKey);
+      return window.localStorage;
+    }
+  } catch (e) {
+    // ストレージアクセス不可時はメモリフォールバックへ進む
+  }
+
+  const mem = new Map();
+  return {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => { mem.set(k, String(v)); },
+    removeItem: (k) => { mem.delete(k); }
+  };
+}
+
+/**
+ * QuotaExceededError 判定ヘルパー
+ * @param {any} err
+ * @returns {boolean}
+ */
+function isQuotaExceededError_(err) {
+  if (!err) return false;
+  return err.name === 'QuotaExceededError' ||
+    err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    err.code === 22 ||
+    err.code === 1014;
+}
+
+/**
+ * GAS 接続設定の localStorage 永続化・URL検証マネージャ
+ */
+class ConnectionConfigStore {
+  /**
+   * @param {Object|null} storageAdapter
+   */
+  constructor(storageAdapter = null) {
+    this.storageKey = 'musicinfo_connection_config';
+    this.storage = createSafeStorage_(storageAdapter);
+  }
+
+  /**
+   * GAS Web App エンドポイント URL の厳格バリデーション
+   * 許可:
+   *   - https://script.google.com/macros/s/<id>/exec
+   *   - https://script.google.com/a/macros/<domain>/s/<id>/exec
+   * 拒否:
+   *   - http://, /dev, クエリ・フラグメント付き, 外部ドメイン
+   * @param {string} url
+   * @returns {{ valid: boolean, normalizedUrl?: string, error?: string }}
+   */
+  static validateEndpointUrl(url) {
+    if (typeof url !== 'string' || !url.trim()) {
+      return { valid: false, error: 'GAS Web App URL を入力してください。' };
+    }
+    const trimmed = url.trim();
+
+    if (trimmed.startsWith('http://')) {
+      return { valid: false, error: 'GAS Web App URL は必ず https:// で始まる必要があります。' };
+    }
+    if (!trimmed.startsWith('https://script.google.com/')) {
+      return { valid: false, error: 'https://script.google.com/ で始まる正規の GAS Web App URL を入力してください。' };
+    }
+    if (trimmed.includes('?') || trimmed.includes('#')) {
+      return { valid: false, error: 'GAS Web App URL にクエリパラメータやフラグメント（? / #）を含めないでください。' };
+    }
+    if (trimmed.endsWith('/dev')) {
+      return { valid: false, error: '開発用 URL (/dev) は使用できません。デプロイ済みの /exec URL を指定してください。' };
+    }
+
+    const pattern = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/]+\/|macros\/)s\/[a-zA-Z0-9_-]+\/exec$/;
+    if (!pattern.test(trimmed)) {
+      return {
+        valid: false,
+        error: 'GAS Web App の /exec URL 形式が正しくありません（例: https://script.google.com/macros/s/.../exec）。'
+      };
+    }
+
+    return { valid: true, normalizedUrl: trimmed };
+  }
+
+  /**
+   * デフォルト接続設定を返す
+   * @returns {{ mode: 'local_demo'|'http_api', endpointUrl: string, apiToken: string }}
+   */
+  static getDefaultConfig() {
+    return {
+      mode: 'local_demo',
+      endpointUrl: '',
+      apiToken: ''
+    };
+  }
+
+  /**
+   * 保存済みの接続設定を取得する（破損・欠落時は安全な local_demo にフォールバック）
+   * @returns {{ mode: 'local_demo'|'http_api', endpointUrl: string, apiToken: string }}
+   */
+  getConfig() {
+    const fallback = ConnectionConfigStore.getDefaultConfig();
+    try {
+      const raw = this.storage.getItem(this.storageKey);
+      if (!raw) return fallback;
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return fallback;
+      }
+
+      const rawUrl = typeof parsed.endpointUrl === 'string' ? parsed.endpointUrl.trim() : '';
+      const rawToken = typeof parsed.apiToken === 'string' ? parsed.apiToken.trim() : '';
+      const urlCheck = rawUrl ? ConnectionConfigStore.validateEndpointUrl(rawUrl) : { valid: false };
+      const normalizedUrl = urlCheck.valid ? urlCheck.normalizedUrl : '';
+
+      const requestedMode = parsed.mode === 'http_api' ? 'http_api' : 'local_demo';
+      const effectiveMode = (requestedMode === 'http_api' && urlCheck.valid && Boolean(rawToken))
+        ? 'http_api'
+        : 'local_demo';
+
+      return {
+        mode: effectiveMode,
+        endpointUrl: normalizedUrl,
+        apiToken: rawToken
+      };
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  /**
+   * 接続設定を保存する
+   * @param {{ mode: 'local_demo'|'http_api', endpointUrl?: string, apiToken?: string }} config
+   * @returns {{ mode: 'local_demo'|'http_api', endpointUrl: string, apiToken: string }}
+   */
+  saveConfig(config) {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) {
+      const err = new Error('接続設定オブジェクトが不正です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    const mode = config.mode === 'http_api' ? 'http_api' : 'local_demo';
+    const rawUrl = typeof config.endpointUrl === 'string' ? config.endpointUrl.trim() : '';
+    const apiToken = typeof config.apiToken === 'string' ? config.apiToken.trim() : '';
+
+    let normalizedUrl = '';
+    if (mode === 'http_api') {
+      const urlCheck = ConnectionConfigStore.validateEndpointUrl(rawUrl);
+      if (!urlCheck.valid) {
+        const err = new Error(urlCheck.error || 'GAS Web App URL が不正です。');
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+      if (!apiToken) {
+        const err = new Error('API_TOKEN を入力してください。');
+        err.code = 'VALIDATION_FAILED';
+        throw err;
+      }
+      normalizedUrl = urlCheck.normalizedUrl;
+    } else if (rawUrl) {
+      const urlCheck = ConnectionConfigStore.validateEndpointUrl(rawUrl);
+      if (urlCheck.valid) {
+        normalizedUrl = urlCheck.normalizedUrl;
+      }
+    }
+
+    const sanitized = {
+      mode,
+      endpointUrl: normalizedUrl,
+      apiToken
+    };
+
+    try {
+      this.storage.setItem(this.storageKey, JSON.stringify(sanitized));
+      return sanitized;
+    } catch (err) {
+      if (isQuotaExceededError_(err)) {
+        const qErr = new Error('ブラウザの保存容量上限に達したため、接続設定を保存できませんでした。');
+        qErr.code = 'LOCAL_STORAGE_QUOTA_EXCEEDED';
+        throw qErr;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * 接続設定をクリアして local_demo モードへ戻す
+   * @returns {{ mode: 'local_demo', endpointUrl: string, apiToken: string }}
+   */
+  clearConfig() {
+    try {
+      if (typeof this.storage.removeItem === 'function') {
+        this.storage.removeItem(this.storageKey);
+      } else {
+        this.storage.setItem(this.storageKey, JSON.stringify(ConnectionConfigStore.getDefaultConfig()));
+      }
+    } catch (e) {
+      // 削除失敗時もデフォルト返却
+    }
+    return ConnectionConfigStore.getDefaultConfig();
+  }
+}
+
+/**
+ * GAS Web App HTTP JSON API トランスポート
+ * CORS プリフライトを発生させない単純リクエスト（POST + text/plain;charset=utf-8）で通信する。
+ */
+class HttpJsonTransport {
+  /**
+   * @param {Function|ConnectionConfigStore} configProvider
+   * @param {Object} [options]
+   */
+  constructor(configProvider, options = {}) {
+    this.configProvider = configProvider;
+    this.fetchFn = options.fetchFn || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+    this.timeoutMs = (typeof options.timeoutMs === 'number' && options.timeoutMs > 0)
+      ? options.timeoutMs
+      : 45000;
+  }
+
+  /**
+   * アクティブな接続設定を解決
+   * @param {Object|null} overrideConfig
+   * @returns {{ endpointUrl: string, apiToken: string }}
+   */
+  resolveConfig_(overrideConfig = null) {
+    const raw = overrideConfig || (
+      typeof this.configProvider === 'function'
+        ? this.configProvider()
+        : (this.configProvider && typeof this.configProvider.getConfig === 'function' ? this.configProvider.getConfig() : {})
+    );
+
+    const urlCheck = ConnectionConfigStore.validateEndpointUrl(raw && raw.endpointUrl);
+    if (!urlCheck.valid) {
+      const err = new Error(urlCheck.error || 'GAS Web App URL が未設定または不正です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    const apiToken = raw && typeof raw.apiToken === 'string' ? raw.apiToken.trim() : '';
+    if (!apiToken) {
+      const err = new Error('API_TOKEN が設定されていません。接続設定画面からトークンを入力してください。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    return {
+      endpointUrl: urlCheck.normalizedUrl,
+      apiToken
+    };
+  }
+
+  /**
+   * GAS Web App (doPost) へ JSON アクションリクエストを送信
+   * @param {string} action
+   * @param {any} [payload=null]
+   * @param {Object|null} [overrideConfig=null]
+   * @returns {Promise<any>}
+   */
+  /**
+   * タイムアウト・ネットワークエラー保護付きで fetch とレスポンスボディ受信を実行
+   * ヘッダ受信後の response.text() ストール／切断も同一の保護配下に置く
+   * @param {string} url
+   * @param {Object} fetchOptions
+   * @returns {Promise<{ status: number, rawText: string }>}
+   */
+  async fetchTextWithTimeout_(url, fetchOptions) {
+    if (!this.fetchFn) {
+      const err = new Error('この環境では fetch API が利用できません。');
+      err.code = 'FETCH_UNAVAILABLE';
+      throw err;
+    }
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    let timerId = null;
+    let onAbort = null;
+
+    if (controller) {
+      timerId = setTimeout(() => controller.abort(), this.timeoutMs);
+    }
+
+    const optionsWithSignal = controller
+      ? { ...fetchOptions, signal: controller.signal }
+      : { ...fetchOptions };
+
+    try {
+      const ioPromise = (async () => {
+        const response = await this.fetchFn(url, optionsWithSignal);
+        const rawText = await response.text();
+        return {
+          status: response && typeof response.status === 'number' ? response.status : 0,
+          rawText: typeof rawText === 'string' ? rawText : String(rawText ?? '')
+        };
+      })();
+
+      if (controller && controller.signal && typeof controller.signal.addEventListener === 'function') {
+        const abortPromise = new Promise((_, reject) => {
+          onAbort = () => {
+            const abortErr = new Error('The operation was aborted.');
+            abortErr.name = 'AbortError';
+            reject(abortErr);
+          };
+          if (controller.signal.aborted) {
+            onAbort();
+          } else {
+            controller.signal.addEventListener('abort', onAbort, { once: true });
+          }
+        });
+        return await Promise.race([ioPromise, abortPromise]);
+      }
+
+      return await ioPromise;
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        const timeoutErr = new Error(`GAS API との通信がタイムアウトしました（${Math.round(this.timeoutMs / 1000)}秒）。`);
+        timeoutErr.code = 'REQUEST_TIMEOUT';
+        throw timeoutErr;
+      }
+      const netErr = new Error(`GAS API への接続に失敗しました: ${(err && err.message) || 'ネットワークエラー'}`);
+      netErr.code = 'NETWORK_ERROR';
+      throw netErr;
+    } finally {
+      if (timerId !== null) {
+        clearTimeout(timerId);
+      }
+      if (controller && controller.signal && onAbort && typeof controller.signal.removeEventListener === 'function') {
+        controller.signal.removeEventListener('abort', onAbort);
+      }
+    }
+  }
+
+  /**
+   * レスポンステキストを JSON パースし、HTML 応答時はステータス別の診断エラーを送出
+   * @param {string} rawText
+   * @param {number} statusCode
+   * @param {boolean} [isHealthCheck=false]
+   * @returns {Object}
+   */
+  parseJsonResponseOrThrow_(rawText, statusCode, isHealthCheck = false) {
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (parseErr) {
+      const looksLikeHtml = /<(?:!doctype|html|head|body)\b/i.test(rawText) ||
+        rawText.includes('accounts.google.com');
+      let msg;
+      if (looksLikeHtml) {
+        if (statusCode >= 400) {
+          msg = `GAS からの応答が JSON ではなく HTML でした（HTTP ${statusCode}）。GAS Web App のエンドポイント URL（末尾 /exec）が正しいか優先して確認し、併せてデプロイ設定（「アクセスできるユーザー: 全員（匿名含む）」）を確認してください。`;
+        } else {
+          msg = `${isHealthCheck ? 'ヘルスチェック' : 'GAS からの'}応答が JSON ではなく HTML でした（HTTP ${statusCode || 'unknown'}）。GAS Web App のデプロイ設定で「アクセスできるユーザー」が「全員（匿名含む）」になっているか、およびエンドポイント URL を確認してください。`;
+        }
+      } else {
+        msg = `${isHealthCheck ? 'ヘルスチェック' : 'GAS からの'}応答を解析できませんでした（HTTP ${statusCode || 'unknown'}）。`;
+      }
+      const respErr = new Error(msg);
+      respErr.code = 'INVALID_RESPONSE';
+      throw respErr;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      const respErr = new Error('GAS API から不正なレスポンス構造が返却されました。');
+      respErr.code = 'INVALID_RESPONSE';
+      throw respErr;
+    }
+
+    return parsed;
+  }
+
+  async callAction(action, payload = null, overrideConfig = null) {
+    const cfg = this.resolveConfig_(overrideConfig);
+    const { status, rawText } = await this.fetchTextWithTimeout_(cfg.endpointUrl, {
+      method: 'POST',
+      mode: 'cors',
+      credentials: 'omit',
+      redirect: 'follow',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify({
+        action: action,
+        token: cfg.apiToken,
+        payload: payload !== undefined ? payload : null
+      })
+    });
+
+    const parsed = this.parseJsonResponseOrThrow_(rawText, status, false);
+
+    if (parsed.success === false) {
+      const apiErr = new Error(parsed.error || 'サーバーエラーが発生しました。');
+      apiErr.code = parsed.code || 'API_ERROR';
+      throw apiErr;
+    }
+
+    return parsed.data !== undefined ? parsed.data : null;
+  }
+
+  /**
+   * GET ヘルスチェック確認（任意）
+   * @param {string} endpointUrl
+   * @returns {Promise<Object>}
+   */
+  async checkHealth(endpointUrl) {
+    const urlCheck = ConnectionConfigStore.validateEndpointUrl(endpointUrl);
+    if (!urlCheck.valid) {
+      const err = new Error(urlCheck.error || 'GAS Web App URL が不正です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    const { status, rawText } = await this.fetchTextWithTimeout_(urlCheck.normalizedUrl, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+      redirect: 'follow'
+    });
+
+    const parsed = this.parseJsonResponseOrThrow_(rawText, status, true);
+    if (parsed.success !== true || !parsed.data) {
+      const err = new Error((parsed && parsed.error) || 'ヘルスチェックに失敗しました。');
+      err.code = (parsed && parsed.code) || 'INVALID_RESPONSE';
+      throw err;
+    }
+    return parsed.data;
+  }
+
+  getAllData() { return this.callAction('getAllData', null); }
+  searchAlbums(keyword) { return this.callAction('searchAlbums', { keyword }); }
+  searchItunes(keyword) { return this.callAction('searchItunes', { keyword }); }
+  lookupItunesAlbum(collectionId) { return this.callAction('lookupItunesAlbum', { collectionId }); }
+  lookupMusicBrainzRelease(mbid) { return this.callAction('lookupMusicBrainzRelease', { mbid }); }
+  saveAlbumBatch(payload) { return this.callAction('saveAlbumBatch', payload); }
+  saveTrackSingle(track) { return this.callAction('saveTrackSingle', track); }
+  updateAlbumBatch(payload) { return this.callAction('updateAlbumBatch', payload); }
+  uploadArtwork(payload) { return this.callAction('uploadArtwork', payload); }
+  resolveDriveArtwork(payload) { return this.callAction('resolveDriveArtwork', payload); }
+  deleteAlbumsBatch(payload) { return this.callAction('deleteAlbumsBatch', payload); }
+}
+
+/**
+ * ローカル / デモモード用トランスポート（localStorage 永続化）
+ * GAS バックエンド未接続時でも、初期デモデータの閲覧およびローカルでの登録・編集・削除を提供する。
+ */
+class LocalDemoTransport {
+  /**
+   * @param {Object|null} storageAdapter
+   */
+  constructor(storageAdapter = null) {
+    this.storageKey = 'musicinfo_local_tracks';
+    this.storage = createSafeStorage_(storageAdapter);
+  }
+
+  /**
+   * 外部通信に依存しない SVG Data URI ジャケット画像を生成
+   * @param {string} title
+   * @param {string} bgStart
+   * @param {string} bgEnd
+   * @param {string} accent
+   * @returns {string}
+   */
+  static buildDemoArtworkSvg_(title, bgStart, bgEnd, accent) {
+    const safeTitle = String(title || 'ALBUM').replace(/[<>&"']/g, '').substring(0, 14);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">` +
+      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+      `<stop offset="0%" stop-color="${bgStart}"/><stop offset="100%" stop-color="${bgEnd}"/>` +
+      `</linearGradient></defs>` +
+      `<rect width="300" height="300" fill="url(#g)"/>` +
+      `<circle cx="150" cy="135" r="68" fill="none" stroke="${accent}" stroke-width="6" opacity="0.85"/>` +
+      `<circle cx="150" cy="135" r="22" fill="${accent}" opacity="0.9"/>` +
+      `<text x="150" y="252" text-anchor="middle" font-family="sans-serif" font-size="20" font-weight="bold" fill="#f8fafc">${safeTitle}</text>` +
+      `</svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+
+  /**
+   * 初期内蔵デモデータ（3 アーティスト・4 アルバム・複数 Disc 構成を含む計 13 曲）
+   * @returns {Array<Object>}
+   */
+  static createInitialDemoTracks() {
+    const art1 = LocalDemoTransport.buildDemoArtworkSvg_('NEON CITY', '#312e81', '#0f172a', '#818cf8');
+    const art2 = LocalDemoTransport.buildDemoArtworkSvg_('STARLIGHT', '#065f46', '#0f172a', '#34d399');
+    const art3 = LocalDemoTransport.buildDemoArtworkSvg_('ECHOES', '#7c2d12', '#0f172a', '#fb923c');
+    const art4 = LocalDemoTransport.buildDemoArtworkSvg_('NOCTURNE', '#4c1d95', '#0f172a', '#c084fc');
+
+    return [
+      {
+        cdNumber: 1,
+        albumArtist: 'Neon Horizon',
+        albumName: 'Midnight Boulevard',
+        trackArtist: 'Neon Horizon',
+        trackNumber: 1,
+        trackName: 'City Lights Intro',
+        releaseDate: '2024-05-15',
+        artworkUrl: art1
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Neon Horizon',
+        albumName: 'Midnight Boulevard',
+        trackArtist: 'Neon Horizon',
+        trackNumber: 2,
+        trackName: 'Highway Reflections',
+        releaseDate: '2024-05-15',
+        artworkUrl: art1
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Neon Horizon',
+        albumName: 'Midnight Boulevard',
+        trackArtist: 'Neon Horizon',
+        trackNumber: 3,
+        trackName: 'Afterglow Drive',
+        releaseDate: '2024-05-15',
+        artworkUrl: art1
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Neon Horizon',
+        albumName: 'Starlight Chronicle (Deluxe)',
+        trackArtist: 'Neon Horizon',
+        trackNumber: 1,
+        trackName: 'Orbital Sunrise',
+        releaseDate: '2025-02-10',
+        artworkUrl: art2
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Neon Horizon',
+        albumName: 'Starlight Chronicle (Deluxe)',
+        trackArtist: 'Neon Horizon',
+        trackNumber: 2,
+        trackName: 'Zero Gravity Waltz',
+        releaseDate: '2025-02-10',
+        artworkUrl: art2
+      },
+      {
+        cdNumber: 2,
+        albumArtist: 'Neon Horizon',
+        albumName: 'Starlight Chronicle (Deluxe)',
+        trackArtist: 'Neon Horizon feat. Koto',
+        trackNumber: 1,
+        trackName: 'Orbital Sunrise (Acoustic Ver.)',
+        releaseDate: '2025-02-10',
+        artworkUrl: art2
+      },
+      {
+        cdNumber: 2,
+        albumArtist: 'Neon Horizon',
+        albumName: 'Starlight Chronicle (Deluxe)',
+        trackArtist: 'Neon Horizon',
+        trackNumber: 2,
+        trackName: 'Horizon Finale (Live 2025)',
+        releaseDate: '2025-02-10',
+        artworkUrl: art2
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Atelier Echo',
+        albumName: 'Paper & Rain',
+        trackArtist: 'Atelier Echo',
+        trackNumber: 1,
+        trackName: 'Morning Drizzle',
+        releaseDate: '2023-10-21',
+        artworkUrl: art3
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Atelier Echo',
+        albumName: 'Paper & Rain',
+        trackArtist: 'Atelier Echo',
+        trackNumber: 2,
+        trackName: 'Library Window',
+        releaseDate: '2023-10-21',
+        artworkUrl: art3
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Atelier Echo',
+        albumName: 'Paper & Rain',
+        trackArtist: 'Atelier Echo',
+        trackNumber: 3,
+        trackName: 'Quiet Sketchbook',
+        releaseDate: '2023-10-21',
+        artworkUrl: art3
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Midnight Quartet',
+        albumName: 'Blue Velvet Sessions',
+        trackArtist: 'Midnight Quartet',
+        trackNumber: 1,
+        trackName: 'Velvet Prelude',
+        releaseDate: '2022-11-03',
+        artworkUrl: art4
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Midnight Quartet',
+        albumName: 'Blue Velvet Sessions',
+        trackArtist: 'Midnight Quartet',
+        trackNumber: 2,
+        trackName: 'Autumn Saxophone',
+        releaseDate: '2022-11-03',
+        artworkUrl: art4
+      },
+      {
+        cdNumber: 1,
+        albumArtist: 'Midnight Quartet',
+        albumName: 'Blue Velvet Sessions',
+        trackArtist: 'Midnight Quartet',
+        trackNumber: 3,
+        trackName: 'Last Train Home',
+        releaseDate: '2022-11-03',
+        artworkUrl: art4
+      }
+    ];
+  }
+
+  /**
+   * 許可された内蔵デモ用 SVG Data URI のセットを返す
+   * @returns {Set<string>}
+   */
+  static getAllowedDemoArtworkSvgs_() {
+    if (!LocalDemoTransport._allowedDemoSvgs) {
+      LocalDemoTransport._allowedDemoSvgs = new Set([
+        LocalDemoTransport.buildDemoArtworkSvg_('NEON CITY', '#312e81', '#0f172a', '#818cf8'),
+        LocalDemoTransport.buildDemoArtworkSvg_('STARLIGHT', '#065f46', '#0f172a', '#34d399'),
+        LocalDemoTransport.buildDemoArtworkSvg_('ECHOES', '#7c2d12', '#0f172a', '#fb923c'),
+        LocalDemoTransport.buildDemoArtworkSvg_('NOCTURNE', '#4c1d95', '#0f172a', '#c084fc')
+      ]);
+    }
+    return LocalDemoTransport._allowedDemoSvgs;
+  }
+
+  /**
+   * 許可されたスキームのみを通すホワイトリスト URL サニタイザ
+   * @param {any} rawUrl
+   * @returns {string}
+   */
+  sanitizeArtworkUrl_(rawUrl) {
+    if (typeof rawUrl !== 'string') return '';
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return '';
+
+    // 内部生成デモ SVG のみ明示的に許可（ユーザー・外部混入 SVG は遮断）
+    if (LocalDemoTransport.getAllowedDemoArtworkSvgs_().has(trimmed)) {
+      return trimmed;
+    }
+
+    // http:// および https:// のみ許可
+    if (/^https?:\/\/\S+$/i.test(trimmed)) {
+      return trimmed;
+    }
+
+    // 安全なビットマップ画像 Data URL のみ許可
+    if (/^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[a-z0-9+/=]+$/i.test(trimmed)) {
+      return trimmed;
+    }
+
+    return '';
+  }
+
+  /**
+   * トラック行オブジェクトの安全な正規化
+   * @param {any} row
+   * @returns {Object|null}
+   */
+  sanitizeTrackRow_(row) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+
+    const albumArtist = String(row.albumArtist || '').trim();
+    const albumName = String(row.albumName || '').trim();
+    const trackName = String(row.trackName || '').trim();
+    if (!albumArtist || !albumName || !trackName) return null;
+
+    const cdRaw = Number(row.cdNumber);
+    const trkRaw = Number(row.trackNumber);
+    const cdNumber = Number.isInteger(cdRaw) && cdRaw >= 1 ? cdRaw : 1;
+    const trackNumber = Number.isInteger(trkRaw) && trkRaw >= 1 ? trkRaw : 1;
+    const trackArtist = String(row.trackArtist || albumArtist).trim() || albumArtist;
+    const releaseDate = row.releaseDate ? String(row.releaseDate).trim() : '';
+    const artworkUrl = this.sanitizeArtworkUrl_(row.artworkUrl);
+
+    return {
+      cdNumber,
+      albumArtist,
+      albumName,
+      trackArtist,
+      trackNumber,
+      trackName,
+      releaseDate,
+      artworkUrl
+    };
+  }
+
+  /**
+   * localStorage から全トラックを読み込む（未初期化時のみデモデータ投入）
+   * @returns {Array<Object>}
+   */
+  loadTracks_() {
+    const raw = this.storage.getItem(this.storageKey);
+    if (raw === null || raw === undefined) {
+      const demo = LocalDemoTransport.createInitialDemoTracks();
+      try {
+        this.saveTracks_(demo);
+      } catch (e) {
+        console.warn('初期デモデータの localStorage 保存をスキップしました（インメモリ表示で続行）:', e && e.message ? e.message : e);
+      }
+      return demo;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.tracks)) {
+        return [];
+      }
+      return parsed.tracks
+        .map((r) => this.sanitizeTrackRow_(r))
+        .filter((r) => r !== null);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /**
+   * localStorage へ全トラックを永続化
+   * @param {Array<Object>} tracks
+   */
+  saveTracks_(tracks) {
+    const payload = {
+      version: 1,
+      tracks: tracks,
+      updatedAt: new Date().toISOString()
+    };
+    try {
+      this.storage.setItem(this.storageKey, JSON.stringify(payload));
+    } catch (err) {
+      if (isQuotaExceededError_(err)) {
+        const qErr = new Error('ブラウザのローカル保存容量の上限に達しました。不要なアルバムを削除するか、GAS バックエンド連携へ切り替えてください。');
+        qErr.code = 'LOCAL_STORAGE_QUOTA_EXCEEDED';
+        throw qErr;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * バリデーションエラー生成ヘルパー
+   * @param {string} message
+   * @returns {Error}
+   */
+  validationError_(message) {
+    const err = new Error(message);
+    err.code = 'VALIDATION_FAILED';
+    return err;
+  }
+
+  /**
+   * ローカルモード非対応機能エラー生成ヘルパー
+   * @param {string} featureLabel
+   * @returns {Promise<never>}
+   */
+  unsupportedError_(featureLabel) {
+    const err = new Error(`${featureLabel}を利用するには、右上の「接続設定」から GAS バックエンドを接続してください。`);
+    err.code = 'LOCAL_MODE_UNSUPPORTED';
+    return Promise.reject(err);
+  }
+
+  async getAllData() {
+    const tracks = this.loadTracks_();
+    return {
+      tracks,
+      totalTracks: tracks.length,
+      loadedAt: new Date().toISOString()
+    };
+  }
+
+  searchAlbums() {
+    return this.unsupportedError_('外部音楽データベース検索（iTunes / MusicBrainz）');
+  }
+
+  searchItunes() {
+    return this.unsupportedError_('iTunes 検索');
+  }
+
+  lookupItunesAlbum() {
+    return this.unsupportedError_('iTunes アルバム詳細取得');
+  }
+
+  lookupMusicBrainzRelease() {
+    return this.unsupportedError_('MusicBrainz リリース詳細取得');
+  }
+
+  resolveDriveArtwork() {
+    return this.unsupportedError_('Google ドライブ画像インポート');
+  }
+
+  async saveAlbumBatch(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw this.validationError_('リクエストペイロードが不正です。');
+    }
+
+    const albumName = String(payload.albumName || '').trim();
+    const albumArtist = String(payload.albumArtist || '').trim();
+    const releaseDate = String(payload.releaseDate || '').trim();
+    const artworkUrl = this.sanitizeArtworkUrl_(payload.artworkUrl500 || payload.artworkUrl || '');
+    const rawTracks = payload.tracks;
+
+    if (!albumName) throw this.validationError_('アルバム名が指定されていません。');
+    if (albumName.length > 255) throw this.validationError_('アルバム名は255文字以内で入力してください。');
+    if (!albumArtist) throw this.validationError_('アルバムアーティスト名が指定されていません。');
+    if (albumArtist.length > 255) throw this.validationError_('アルバムアーティスト名は255文字以内で入力してください。');
+    if (!Array.isArray(rawTracks) || rawTracks.length === 0) {
+      throw this.validationError_('登録する収録曲が1件も存在しません。');
+    }
+
+    const newRows = [];
+    for (let i = 0; i < rawTracks.length; i++) {
+      const t = rawTracks[i];
+      if (!t || typeof t !== 'object') {
+        throw this.validationError_(`トラックデータ (インデックス ${i}) が不正です。`);
+      }
+      const tName = String(t.trackName || '').trim();
+      if (!tName) throw this.validationError_(`トラック名 (インデックス ${i}) が指定されていません。`);
+      if (tName.length > 255) throw this.validationError_(`トラック名 (インデックス ${i}) は255文字以内で入力してください。`);
+
+      const cdNo = (t.cdNumber !== undefined && t.cdNumber !== null && t.cdNumber !== '') ? Number(t.cdNumber) : 1;
+      if (!Number.isFinite(cdNo) || !Number.isInteger(cdNo) || cdNo < 1) {
+        throw this.validationError_(`CD番号 (インデックス ${i}) は1以上の整数を指定してください。`);
+      }
+      const trkNo = (t.trackNumber !== undefined && t.trackNumber !== null && t.trackNumber !== '') ? Number(t.trackNumber) : 1;
+      if (!Number.isFinite(trkNo) || !Number.isInteger(trkNo) || trkNo < 1) {
+        throw this.validationError_(`トラック番号 (インデックス ${i}) は1以上の整数を指定してください。`);
+      }
+      const tArtist = String(t.trackArtist || albumArtist).trim();
+      if (tArtist.length > 255) {
+        throw this.validationError_(`トラックアーティスト名 (インデックス ${i}) は255文字以内で入力してください。`);
+      }
+
+      newRows.push({
+        cdNumber: cdNo,
+        albumArtist,
+        albumName,
+        trackArtist: tArtist,
+        trackNumber: trkNo,
+        trackName: tName,
+        releaseDate,
+        artworkUrl
+      });
+    }
+
+    const existing = this.loadTracks_();
+    this.saveTracks_(existing.concat(newRows));
+
+    return {
+      count: newRows.length,
+      savedAlbum: albumName,
+      artworkUrl
+    };
+  }
+
+  async saveTrackSingle(trackPayload) {
+    if (!trackPayload || typeof trackPayload !== 'object' || Array.isArray(trackPayload)) {
+      throw this.validationError_('リクエストペイロードが不正です。');
+    }
+
+    const cdNumber = (trackPayload.cdNumber !== undefined && trackPayload.cdNumber !== null && trackPayload.cdNumber !== '')
+      ? Number(trackPayload.cdNumber)
+      : 1;
+    const albumArtist = String(trackPayload.albumArtist || '').trim();
+    const albumName = String(trackPayload.albumName || '').trim();
+    const trackArtist = String(trackPayload.trackArtist || albumArtist).trim();
+    const trackNumber = (trackPayload.trackNumber !== undefined && trackPayload.trackNumber !== null && trackPayload.trackNumber !== '')
+      ? Number(trackPayload.trackNumber)
+      : 1;
+    const trackName = String(trackPayload.trackName || '').trim();
+    const releaseDate = String(trackPayload.releaseDate || '').trim();
+    const artworkUrl = this.sanitizeArtworkUrl_(trackPayload.artworkUrl || '');
+
+    if (!Number.isFinite(cdNumber) || !Number.isInteger(cdNumber) || cdNumber < 1) {
+      throw this.validationError_('CD番号は1以上の整数を指定してください。');
+    }
+    if (!albumArtist) throw this.validationError_('アルバムアーティスト名を入力してください。');
+    if (albumArtist.length > 255) throw this.validationError_('アルバムアーティスト名は255文字以内で入力してください。');
+    if (!albumName) throw this.validationError_('アルバム名を入力してください。');
+    if (albumName.length > 255) throw this.validationError_('アルバム名は255文字以内で入力してください。');
+    if (!trackName) throw this.validationError_('トラック名を入力してください。');
+    if (trackName.length > 255) throw this.validationError_('トラック名は255文字以内で入力してください。');
+    if (!Number.isFinite(trackNumber) || !Number.isInteger(trackNumber) || trackNumber < 1) {
+      throw this.validationError_('トラック番号は1以上の整数を指定してください。');
+    }
+    if (trackArtist.length > 255) throw this.validationError_('トラックアーティスト名は255文字以内で入力してください。');
+
+    const savedTrack = {
+      cdNumber,
+      albumArtist,
+      albumName,
+      trackArtist,
+      trackNumber,
+      trackName,
+      releaseDate,
+      artworkUrl
+    };
+
+    const existing = this.loadTracks_();
+    this.saveTracks_(existing.concat([savedTrack]));
+
+    return { savedTrack };
+  }
+
+  async updateAlbumBatch(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw this.validationError_('リクエストペイロードが不正なオブジェクトです。');
+    }
+
+    const { targetKey, album, tracks } = payload;
+    if (!targetKey || typeof targetKey !== 'object') {
+      throw this.validationError_('編集対象の旧アルバム識別キー（targetKey）が指定されていません。');
+    }
+    const origArtist = String(targetKey.originalAlbumArtist || '').trim();
+    const origAlbum = String(targetKey.originalAlbumName || '').trim();
+    if (!origArtist || !origAlbum) {
+      throw this.validationError_('編集対象の旧アルバムアーティスト名および旧アルバム名は必須です。');
+    }
+
+    if (!album || typeof album !== 'object') {
+      throw this.validationError_('新アルバム情報（album）が指定されていません。');
+    }
+    const albumName = String(album.albumName || '').trim();
+    const albumArtist = String(album.albumArtist || '').trim();
+    const releaseDate = String(album.releaseDate || '').trim();
+    const artworkUrl = this.sanitizeArtworkUrl_(album.artworkUrl || '');
+
+    if (!albumName) throw this.validationError_('アルバム名は必須です。');
+    if (!albumArtist) throw this.validationError_('アルバムアーティスト名は必須です。');
+    if (albumName.length > 255 || albumArtist.length > 255) {
+      throw this.validationError_('アルバム名およびアルバムアーティスト名は最大255文字以内で入力してください。');
+    }
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      throw this.validationError_('収録曲は最低1曲必要です。全曲削除することはできません。');
+    }
+
+    const trackKeySet = new Set();
+    const newRows = [];
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (!t || typeof t !== 'object') {
+        throw this.validationError_(`トラックデータ[${i + 1}]が不正なオブジェクトです。`);
+      }
+      const cdNo = Number(t.cdNumber);
+      if (!Number.isInteger(cdNo) || cdNo < 1 || !Number.isFinite(cdNo)) {
+        throw this.validationError_(`トラック #${i + 1} のCD番号は1以上の整数を指定してください。`);
+      }
+      const trkNo = Number(t.trackNumber);
+      if (!Number.isInteger(trkNo) || trkNo < 1 || !Number.isFinite(trkNo)) {
+        throw this.validationError_(`トラック #${i + 1} のトラック番号は1以上の整数を指定してください。`);
+      }
+      const trkName = String(t.trackName || '').trim();
+      if (!trkName) throw this.validationError_(`トラック #${i + 1} の曲名は必須です。`);
+      if (trkName.length > 255) throw this.validationError_(`トラック #${i + 1} の曲名は255文字以内で入力してください。`);
+
+      const trkArtist = String(t.trackArtist || albumArtist).trim();
+      if (trkArtist.length > 255) throw this.validationError_(`トラック #${i + 1} のアーティスト名は255文字以内で入力してください。`);
+
+      const uniqueKey = `${cdNo}_${trkNo}`;
+      if (trackKeySet.has(uniqueKey)) {
+        throw this.validationError_(`CD番号 ${cdNo} の中に重複するトラック番号 #${trkNo} が存在します。`);
+      }
+      trackKeySet.add(uniqueKey);
+
+      newRows.push({
+        cdNumber: cdNo,
+        albumArtist,
+        albumName,
+        trackArtist: trkArtist,
+        trackNumber: trkNo,
+        trackName: trkName,
+        releaseDate,
+        artworkUrl
+      });
+    }
+
+    const existing = this.loadTracks_();
+    const retained = [];
+    let matchCount = 0;
+    for (let i = 0; i < existing.length; i++) {
+      const row = existing[i];
+      if (row.albumArtist === origArtist && row.albumName === origAlbum) {
+        matchCount++;
+      } else {
+        retained.push(row);
+      }
+    }
+
+    if (matchCount === 0) {
+      const notFoundErr = new Error(`更新対象のアルバム「${origAlbum} (${origArtist})」が見つかりませんでした。`);
+      notFoundErr.code = 'NOT_FOUND';
+      throw notFoundErr;
+    }
+
+    const combined = retained.concat(newRows);
+    this.saveTracks_(combined);
+
+    return {
+      updatedRowCount: newRows.length,
+      totalRowCount: combined.length,
+      previousRowCount: matchCount,
+      albumName,
+      albumArtist
+    };
+  }
+
+  async uploadArtwork(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw this.validationError_('リクエストペイロードが不正です。');
+    }
+    const base64Data = payload.base64Data;
+    const requestedMime = typeof payload.mimeType === 'string' ? payload.mimeType.trim().toLowerCase() : '';
+
+    if (typeof base64Data !== 'string' || !base64Data.trim()) {
+      throw this.validationError_('画像データが指定されていません。');
+    }
+
+    const headerMatch = base64Data.match(/^data:([^;]+);base64,([A-Za-z0-9+/=\s]+)$/i);
+    if (!headerMatch) {
+      throw this.validationError_('ローカルモードでは JPEG / PNG / WebP の Base64 DataURL のみ利用できます。');
+    }
+
+    const headerMime = headerMatch[1].toLowerCase();
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedMimes.includes(headerMime)) {
+      throw this.validationError_('対応画像形式は JPEG、PNG、WebP のみです。');
+    }
+    if (requestedMime && requestedMime !== headerMime) {
+      throw this.validationError_('MIMEタイプの指定が一致しません。');
+    }
+
+    const MAX_LOCAL_DATAURL_LEN = Math.floor(1.5 * 1024 * 1024);
+    if (base64Data.length > MAX_LOCAL_DATAURL_LEN) {
+      throw this.validationError_('ローカルモードでの画像サイズ上限（約1MB）を超えています。');
+    }
+
+    const extMap = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+    return {
+      fileId: 'local-' + Date.now(),
+      publicUrl: base64Data,
+      fileName: 'local_artwork.' + (extMap[headerMime] || 'jpg')
+    };
+  }
+
+  async deleteAlbumsBatch(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw this.validationError_('リクエストペイロードが不正です。');
+    }
+    if (!Array.isArray(payload.albums) || payload.albums.length === 0) {
+      throw this.validationError_('削除対象のアルバムが指定されていません。');
+    }
+
+    const keySet = new Set();
+    const validAlbums = [];
+    for (let i = 0; i < payload.albums.length; i++) {
+      const a = payload.albums[i];
+      if (!a || typeof a !== 'object' || Array.isArray(a)) {
+        throw this.validationError_(`インデックス ${i} のアルバム情報が不正です。`);
+      }
+      const artist = typeof a.albumArtist === 'string' ? a.albumArtist.trim() : '';
+      const name = typeof a.albumName === 'string' ? a.albumName.trim() : '';
+      if (!artist || !name) {
+        throw this.validationError_('アルバムアーティスト名およびアルバム名は必須です。');
+      }
+      if (artist.length > 255 || name.length > 255) {
+        throw this.validationError_('アルバムアーティスト名およびアルバム名は255文字以内で入力してください。');
+      }
+      const key = `${artist}:::${name}`;
+      if (!keySet.has(key)) {
+        keySet.add(key);
+        validAlbums.push({ albumArtist: artist, albumName: name });
+      }
+    }
+
+    const existing = this.loadTracks_();
+    const retained = [];
+    const deletedAlbumKeys = new Set();
+    let deletedTrackCount = 0;
+
+    for (let i = 0; i < existing.length; i++) {
+      const row = existing[i];
+      const rowKey = `${row.albumArtist}:::${row.albumName}`;
+      if (keySet.has(rowKey)) {
+        deletedTrackCount++;
+        deletedAlbumKeys.add(rowKey);
+      } else {
+        retained.push(row);
+      }
+    }
+
+    this.saveTracks_(retained);
+
+    return {
+      deletedAlbumCount: deletedAlbumKeys.size,
+      deletedTrackCount,
+      deletedAlbums: validAlbums,
+      remainingRowCount: retained.length
+    };
+  }
+
+  /**
+   * 内蔵デモデータでローカルストレージを再初期化
+   * @returns {Promise<{ tracks: Array<Object>, totalTracks: number, loadedAt: string }>}
+   */
+  async resetDemoData() {
+    const demo = LocalDemoTransport.createInitialDemoTracks();
+    this.saveTracks_(demo);
+    return {
+      tracks: demo,
+      totalTracks: demo.length,
+      loadedAt: new Date().toISOString()
+    };
+  }
+}
+
+/**
+ * ハイブリッド通信クライアント（接続設定に応じて HttpJsonTransport / LocalDemoTransport へ委譲）
  */
 class ApiClient {
   /**
-   * google.script.run の関数呼び出しをPromise化
-   * @param {string} functionName 
-   * @param  {...any} args 
-   * @returns {Promise<any>}
+   * @param {Object} [options]
    */
-  callGAS(functionName, ...args) {
-    return new Promise((resolve, reject) => {
-      if (typeof google === 'undefined' || !google.script || !google.script.run) {
-        // ローカルモック用フォールバック
-        console.warn(`[Mock] google.script.run.${functionName} 呼び出し:`, args);
-        return reject(new Error('google.script.run は GAS 環境でのみ動作します。'));
+  constructor(options = {}) {
+    this.configStore = options.configStore || new ConnectionConfigStore(options.storageAdapter || null);
+    this.localTransport = options.localTransport || new LocalDemoTransport(options.storageAdapter || null);
+    this.httpTransport = options.httpTransport || new HttpJsonTransport(
+      () => this.configStore.getConfig(),
+      {
+        fetchFn: options.fetchFn,
+        timeoutMs: options.timeoutMs
       }
+    );
+  }
 
-      google.script.run
-        .withSuccessHandler((response) => {
-          if (response && response.success === false) {
-            const err = new Error(response.error || 'サーバーエラーが発生しました');
-            err.code = response.code;
-            reject(err);
-          } else {
-            resolve(response ? response.data : null);
-          }
-        })
-        .withFailureHandler((error) => {
-          console.error(`GAS RPC 失敗 [${functionName}]:`, error);
-          reject(new Error(error.message || '通信エラーが発生しました'));
-        })[functionName](...args);
+  /**
+   * 現在の接続設定を取得
+   * @returns {{ mode: 'local_demo'|'http_api', endpointUrl: string, apiToken: string }}
+   */
+  getConnectionConfig() {
+    return this.configStore.getConfig();
+  }
+
+  /**
+   * 現在の動作モードを取得
+   * @returns {'local_demo'|'http_api'}
+   */
+  getMode() {
+    return this.getConnectionConfig().mode;
+  }
+
+  /**
+   * GAS API 連携モードで動作中かどうか
+   * @returns {boolean}
+   */
+  isHttpApiMode() {
+    return this.getMode() === 'http_api';
+  }
+
+  /**
+   * エンドポイント URL の妥当性を検証
+   * @param {string} url
+   * @returns {{ valid: boolean, normalizedUrl?: string, error?: string }}
+   */
+  validateEndpointUrl(url) {
+    return ConnectionConfigStore.validateEndpointUrl(url);
+  }
+
+  /**
+   * アクティブなトランスポートアダプタを解決
+   * @returns {HttpJsonTransport|LocalDemoTransport}
+   */
+  getActiveTransport_() {
+    return this.isHttpApiMode() ? this.httpTransport : this.localTransport;
+  }
+
+  /**
+   * 指定された GAS URL と API_TOKEN で疎通・認証テストを実施（設定保存前の検証用）
+   * @param {string} endpointUrl
+   * @param {string} apiToken
+   * @returns {Promise<{ ok: boolean, endpointUrl: string, totalTracks: number, loadedAt: string }>}
+   */
+  async testConnection(endpointUrl, apiToken) {
+    const urlCheck = ConnectionConfigStore.validateEndpointUrl(endpointUrl);
+    if (!urlCheck.valid) {
+      const err = new Error(urlCheck.error || 'GAS Web App URL が不正です。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+    const token = typeof apiToken === 'string' ? apiToken.trim() : '';
+    if (!token) {
+      const err = new Error('API_TOKEN を入力してください。');
+      err.code = 'VALIDATION_FAILED';
+      throw err;
+    }
+
+    const data = await this.httpTransport.callAction('getAllData', null, {
+      endpointUrl: urlCheck.normalizedUrl,
+      apiToken: token
+    });
+    const totalTracks = (data && typeof data.totalTracks === 'number')
+      ? data.totalTracks
+      : (Array.isArray(data && data.tracks) ? data.tracks.length : 0);
+
+    return {
+      ok: true,
+      endpointUrl: urlCheck.normalizedUrl,
+      totalTracks,
+      loadedAt: (data && data.loadedAt) || new Date().toISOString()
+    };
+  }
+
+  /**
+   * GAS 接続設定を検証・保存して http_api モードを有効化
+   * @param {string} endpointUrl
+   * @param {string} apiToken
+   * @returns {{ mode: 'http_api', endpointUrl: string, apiToken: string }}
+   */
+  saveAndActivateHttpConfig(endpointUrl, apiToken) {
+    return this.configStore.saveConfig({
+      mode: 'http_api',
+      endpointUrl,
+      apiToken
     });
   }
 
   /**
-   * スプレッドシート全楽曲データ取得
-   * @returns {Promise<{ tracks: Array<RawTrackRow>, totalTracks: number, loadedAt: string }>}
+   * 接続設定をクリアしてローカル/デモモードへ復帰
+   * @returns {{ mode: 'local_demo', endpointUrl: string, apiToken: string }}
    */
+  resetToLocalMode() {
+    return this.configStore.clearConfig();
+  }
+
+  /**
+   * ローカルデモデータを初期状態へリセット
+   * @returns {Promise<{ tracks: Array<Object>, totalTracks: number, loadedAt: string }>}
+   */
+  resetLocalDemoData() {
+    return this.localTransport.resetDemoData();
+  }
+
   getAllData() {
-    return this.callGAS('apiGetAllData');
+    return this.getActiveTransport_().getAllData();
   }
 
-  /**
-   * アルバム統合検索（iTunes + MusicBrainz）
-   * @param {string} keyword 
-   * @returns {Promise<AlbumSearchResponse>}
-   */
   searchAlbums(keyword) {
-    return this.callGAS('apiSearchAlbums', keyword);
+    return this.getActiveTransport_().searchAlbums(keyword);
   }
 
-  /**
-   * iTunes アルバム検索
-   * @param {string} keyword 
-   * @returns {Promise<{ albums: Array<ItunesAlbumSummary> }>}
-   */
   searchItunes(keyword) {
-    return this.callGAS('apiSearchItunes', keyword);
+    return this.getActiveTransport_().searchItunes(keyword);
   }
 
-  /**
-   * iTunes アルバム収録曲Lookup
-   * @param {number|string} collectionId 
-   * @returns {Promise<{ albumDetail: ItunesAlbumDetail }>}
-   */
   lookupItunesAlbum(collectionId) {
-    return this.callGAS('apiLookupItunesAlbum', collectionId);
+    return this.getActiveTransport_().lookupItunesAlbum(collectionId);
   }
 
-  /**
-   * MusicBrainz リリース収録曲Lookup
-   * @param {string} mbid 
-   * @returns {Promise<{ albumDetail: AlbumDetail }>}
-   */
   lookupMusicBrainzRelease(mbid) {
-    return this.callGAS('apiLookupMusicBrainzRelease', mbid);
+    return this.getActiveTransport_().lookupMusicBrainzRelease(mbid);
   }
 
-  /**
-   * アルバム一括保存（iTunes / MusicBrainz 共通）
-   * @param {BatchSavePayload} payload 
-   * @returns {Promise<{ count: number, savedAlbum: string, artworkUrl: string }>}
-   */
   saveAlbumBatch(payload) {
-    return this.callGAS('apiSaveAlbumBatch', payload);
+    return this.getActiveTransport_().saveAlbumBatch(payload);
   }
 
-  /**
-   * 手動1曲追加
-   * @param {SingleTrackPayload} track 
-   * @returns {Promise<{ savedTrack: RawTrackRow }>}
-   */
   saveTrackSingle(track) {
-    return this.callGAS('apiSaveTrackSingle', track);
+    return this.getActiveTransport_().saveTrackSingle(track);
   }
 
-  /**
-   * アルバムデータ一括更新
-   * @param {AlbumEditPayload} payload 
-   * @returns {Promise<AlbumEditResult>}
-   */
   updateAlbumBatch(payload) {
-    return this.callGAS('apiUpdateAlbumBatch', payload);
+    return this.getActiveTransport_().updateAlbumBatch(payload);
   }
 
-  /**
-   * ローカルアートワーク画像アップロード
-   * @param {Object} payload 
-   * @returns {Promise<{ fileId: string, publicUrl: string, fileName: string }>}
-   */
   uploadArtwork(payload) {
-    return this.callGAS('apiUploadArtwork', payload);
+    return this.getActiveTransport_().uploadArtwork(payload);
   }
 
-  /**
-   * Google Drive画像解決・複製
-   * @param {Object} payload 
-   * @returns {Promise<{ fileId: string, publicUrl: string, fileName: string }>}
-   */
   resolveDriveArtwork(payload) {
-    return this.callGAS('apiResolveDriveArtwork', payload);
+    return this.getActiveTransport_().resolveDriveArtwork(payload);
   }
 
-  /**
-   * アルバム一括削除 API の呼び出し
-   * @param {Array<{ albumArtist: string, albumName: string }>} albums
-   * @returns {Promise<DeleteAlbumsResult>}
-   */
   deleteAlbumsBatch(albums) {
-    return this.callGAS('apiDeleteAlbumsBatch', { albums: albums });
+    return this.getActiveTransport_().deleteAlbumsBatch({ albums: albums });
   }
 }
 
 if (typeof window !== 'undefined') {
+  window.ConnectionConfigStore = ConnectionConfigStore;
+  window.HttpJsonTransport = HttpJsonTransport;
+  window.LocalDemoTransport = LocalDemoTransport;
   window.ApiClient = ApiClient;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = ApiClient;
+  module.exports.ApiClient = ApiClient;
+  module.exports.ConnectionConfigStore = ConnectionConfigStore;
+  module.exports.HttpJsonTransport = HttpJsonTransport;
+  module.exports.LocalDemoTransport = LocalDemoTransport;
 }
 </script>

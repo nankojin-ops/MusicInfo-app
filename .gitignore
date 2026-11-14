@@ -12,3 +12,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
+
+# ビルド成果物（GitHub Pages デプロイ用・旧GAS生成物）
+dist/
+src/index.html

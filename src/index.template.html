@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="ja" class="h-full bg-slate-950 text-slate-100">
 <head>
-  <base target="_top">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>MusicInfo Manager - 音楽CD・アルバムコレクション管理</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Crect width='24' height='24' rx='6' fill='%234f46e5'/%3E%3Cpath d='M9 18V7l9-2v11M9 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm9-2c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- スタイル定義インクルード -->
@@ -40,6 +40,7 @@
   <?!= include('ImageModal'); ?>
   <?!= include('DriveArtworkModal'); ?>
   <?!= include('DeleteConfirmModal'); ?>
+  <?!= include('ConnectionModal'); ?>
 
   <!-- トースト通知コンテナ -->
   <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>

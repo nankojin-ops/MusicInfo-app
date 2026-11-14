@@ -1567,6 +1567,284 @@ recordResult(
 );
 
 // -----------------------------------------------------------------------------
+// [TEST SUITE 9] GitHub Pages 公開・GAS JSON API ハイブリッド境界 Red Team 検証
+// -----------------------------------------------------------------------------
+console.log('\n>>> [9.1] Code.doPost プロトタイプ汚染・認証バイパス・スカラ引数汚染攻撃耐性');
+const CodeForRT = require('../src/Code');
+
+global.ContentService = {
+  MimeType: { JSON: 'JSON', TEXT: 'TEXT' },
+  createTextOutput: (content) => ({
+    _content: content,
+    setMimeType: function() { return this; },
+    getContent: function() { return this._content; }
+  })
+};
+
+let rtDbCalls = 0;
+global.SpreadsheetApp = {
+  openById: () => {
+    rtDbCalls++;
+    return { getSheetByName: () => ({ getLastRow: () => 1, getRange: () => ({ getValues: () => [] }) }) };
+  },
+  flush: () => {}
+};
+global.DriveApp = {
+  Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK' },
+  Permission: { VIEW: 'VIEW' },
+  getFolderById: () => { rtDbCalls++; throw new Error('Should not be called'); },
+  getFileById: () => { rtDbCalls++; throw new Error('Should not be called'); }
+};
+
+// 1. API_TOKEN 未設定状態での強制アクセス遮断 (API_DISABLED)
+global.PropertiesService = {
+  getScriptProperties: () => ({
+    getProperties: () => ({ SPREADSHEET_ID: 'rt-ss', DRIVE_FOLDER_ID: 'rt-df' })
+  })
+};
+rtDbCalls = 0;
+const rtDisabledRes = JSON.parse(CodeForRT.doPost({
+  postData: { contents: JSON.stringify({ action: 'getAllData', token: '' }) }
+}).getContent());
+recordResult(
+  'doPost Secure by Default: API_TOKEN 未設定時に API_DISABLED で拒否し DB へアクセスしない',
+  rtDisabledRes.success === false && rtDisabledRes.code === 'API_DISABLED' && rtDbCalls === 0,
+  `code=${rtDisabledRes.code}, dbCalls=${rtDbCalls}`,
+  'CRITICAL'
+);
+
+// 2. API_TOKEN 設定状態での認証バイパス攻撃
+const rtSecretToken = 'RtSuperSecretToken_2026_!@#$%';
+global.PropertiesService = {
+  getScriptProperties: () => ({
+    getProperties: () => ({ SPREADSHEET_ID: 'rt-ss', DRIVE_FOLDER_ID: 'rt-df', API_TOKEN: rtSecretToken })
+  })
+};
+
+const tokenAttackVectors = [
+  { name: '空配列 token: []', token: [] },
+  { name: 'オブジェクト token: {}', token: {} },
+  { name: '数値 token: 12345', token: 12345 },
+  { name: 'null token', token: null },
+  { name: '部分一致プレフィックス token', token: rtSecretToken.slice(0, 10) },
+  { name: '末尾1文字違い token', token: rtSecretToken.slice(0, -1) + 'X' }
+];
+rtDbCalls = 0;
+tokenAttackVectors.forEach(vec => {
+  const res = JSON.parse(CodeForRT.doPost({
+    postData: { contents: JSON.stringify({ action: 'getAllData', token: vec.token }) }
+  }).getContent());
+  recordResult(
+    `doPost 認証攻撃耐性 (${vec.name})`,
+    res.success === false && res.code === 'UNAUTHORIZED' && rtDbCalls === 0,
+    `Expected UNAUTHORIZED & 0 DB calls, got ${res.code}, dbCalls=${rtDbCalls}`,
+    'CRITICAL'
+  );
+});
+
+// 3. プロトタイプ汚染アクションインジェクション
+// JSON.parse('{"action":"__proto__",...}') でも安全にプロパティ名として解釈されるため検証
+['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty'].forEach(protoKey => {
+  const rawJson = `{"action":"${protoKey}","token":${JSON.stringify(rtSecretToken)},"payload":null}`;
+  const res = JSON.parse(CodeForRT.doPost({ postData: { contents: rawJson } }).getContent());
+  recordResult(
+    `doPost プロトタイプ汚染防御 (action="${protoKey}")`,
+    res.success === false && res.code === 'UNKNOWN_ACTION',
+    `Expected UNKNOWN_ACTION, got ${res.code}`,
+    'CRITICAL'
+  );
+});
+
+// 4. ペイロードサイズ上限 (10MB超) 防御
+const overLimitRes = JSON.parse(CodeForRT.doPost({
+  postData: { contents: 'A'.repeat(10 * 1024 * 1024 + 10) }
+}).getContent());
+recordResult(
+  'doPost DoS防御: 10MB 超ペイロードを INVALID_REQUEST で即遮断',
+  overLimitRes.success === false && overLimitRes.code === 'INVALID_REQUEST',
+  `code=${overLimitRes.code}`,
+  'HIGH'
+);
+
+// 5. 配列・オブジェクト混入による "[object Object]" スカラ引数汚染防止
+let externalFetchTriggered = false;
+global.UrlFetchApp = {
+  fetch: () => { externalFetchTriggered = true; throw new Error('Should not fetch'); },
+  fetchAll: () => { externalFetchTriggered = true; throw new Error('Should not fetchAll'); }
+};
+const scalarPolluteCases = [
+  { action: 'searchAlbums', payload: {} },
+  { action: 'searchAlbums', payload: ['evil'] },
+  { action: 'searchAlbums', payload: { keyword: {} } },
+  { action: 'searchItunes', payload: ['evil'] },
+  { action: 'lookupItunesAlbum', payload: {} },
+  { action: 'lookupMusicBrainzRelease', payload: { mbid: ['evil'] } }
+];
+scalarPolluteCases.forEach(tc => {
+  externalFetchTriggered = false;
+  const res = JSON.parse(CodeForRT.doPost({
+    postData: { contents: JSON.stringify({ action: tc.action, token: rtSecretToken, payload: tc.payload }) }
+  }).getContent());
+  recordResult(
+    `doPost スカラ引数汚染防御 (${tc.action}: ${JSON.stringify(tc.payload)})`,
+    res.success === false && res.code === 'VALIDATION_FAILED' && externalFetchTriggered === false,
+    `code=${res.code}, fetched=${externalFetchTriggered}`,
+    'HIGH'
+  );
+});
+
+console.log('\n>>> [9.2] フロントエンド URLインジェクション・破損ストレージ・XSSアップロード攻撃耐性');
+const apiClientHtmlRt = fs.readFileSync(path.join(__dirname, '../src/ScriptsApiClient.html'), 'utf8');
+const apiClientScriptRt = apiClientHtmlRt.match(/<script>([\s\S]*?)<\/script>/)[1];
+const apiCtxRt = vm.createContext({
+  console, Date, Math, JSON, Set, Map, Error, Promise, encodeURIComponent,
+  setTimeout, clearTimeout, window: {}, module: { exports: {} }
+});
+vm.runInContext(apiClientScriptRt, apiCtxRt);
+const { ConnectionConfigStore: RtConfigStore, LocalDemoTransport: RtLocalDemo } = apiCtxRt.module.exports;
+
+const maliciousUrls = [
+  'javascript:alert(1)',
+  'https://script.google.com.evil.com/macros/s/abc123/exec',
+  'https://script.google.com/macros/s/abc123/dev',
+  'http://script.google.com/macros/s/abc123/exec',
+  'https://script.google.com/macros/s/abc123/exec?token=steal',
+  'https://script.google.com/macros/s/abc123/exec#hash'
+];
+maliciousUrls.forEach(badUrl => {
+  const chk = RtConfigStore.validateEndpointUrl(badUrl);
+  recordResult(
+    `HttpJsonTransport URL検証拒否 (${badUrl})`,
+    chk.valid === false,
+    '悪意ある/不正な URL が許可された',
+    'CRITICAL'
+  );
+});
+
+// 破損ストレージ＋悪意ある XSS URL 混入への耐性
+const evilMap = new Map();
+const evilStorage = {
+  getItem: (k) => (evilMap.has(k) ? evilMap.get(k) : null),
+  setItem: (k, v) => evilMap.set(k, String(v)),
+  removeItem: (k) => evilMap.delete(k)
+};
+evilMap.set('musicinfo_local_tracks', JSON.stringify({
+  version: 1,
+  tracks: [
+    null,
+    'corrupted-string',
+    {
+      cdNumber: 1,
+      albumArtist: 'A',
+      albumName: 'B',
+      trackName: 'C',
+      artworkUrl: 'javascript:alert(document.cookie)'
+    },
+    {
+      cdNumber: 1,
+      albumArtist: 'A',
+      albumName: 'B2',
+      trackName: 'C2',
+      artworkUrl: 'file:///etc/passwd'
+    },
+    {
+      cdNumber: 1,
+      albumArtist: 'A',
+      albumName: 'B3',
+      trackName: 'C3',
+      artworkUrl: 'data:image/svg+xml;charset=utf-8,<svg onload=alert(1)></svg>'
+    }
+  ]
+}));
+const rtLocal = new RtLocalDemo(evilStorage);
+const sanitizedData = await rtLocal.getAllData();
+recordResult(
+  'LocalDemoTransport: 破損要素・javascript:/file:/外部SVG スキームの無害化 (BUG-005)',
+  sanitizedData.tracks.length === 3 &&
+  sanitizedData.tracks.every(t => t.artworkUrl === ''),
+  `tracks=${JSON.stringify(sanitizedData.tracks)}`,
+  'HIGH'
+);
+
+// SVG / HTML 偽装アップロード拒否
+for (const badMimeCase of [
+  { name: 'SVG XSS', data: 'data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+PC9zdmc+', mime: 'image/svg+xml' },
+  { name: 'HTML偽装', data: 'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==', mime: 'image/jpeg' }
+]) {
+  let rejected = false;
+  try {
+    await rtLocal.uploadArtwork({ base64Data: badMimeCase.data, mimeType: badMimeCase.mime });
+  } catch (e) {
+    rejected = e.code === 'VALIDATION_FAILED';
+  }
+  recordResult(
+    `LocalDemoTransport.uploadArtwork 不正形式拒否 (${badMimeCase.name})`,
+    rejected,
+    '危険な DataURL が受け入れられた',
+    'HIGH'
+  );
+}
+
+console.log('\n>>> [9.3] ConnectionModal / Navbar WCAG 44px & Enter誤送信抑止 & ビルド機密非混入検証');
+const connModalContent = fs.readFileSync(path.join(__dirname, '../src/ConnectionModal.html'), 'utf8');
+const navbarContentForRt = fs.readFileSync(path.join(__dirname, '../src/Navbar.html'), 'utf8');
+const distIndexForRt = fs.readFileSync(path.join(__dirname, '../dist/index.html'), 'utf8');
+
+recordResult(
+  'ConnectionModal: Enterキー誤送信抑止 (onsubmit="event.preventDefault();")',
+  connModalContent.includes('onsubmit="event.preventDefault();"'),
+  'form-connection に onsubmit="event.preventDefault();" が未設定',
+  'HIGH'
+);
+
+const connectionTouchButtons = [
+  { file: 'Navbar', content: navbarContentForRt, id: 'btn-open-connection-modal', checkMinWidth: true },
+  { file: 'Navbar', content: navbarContentForRt, id: 'btn-open-manual-modal', checkMinWidth: true },
+  { file: 'Navbar', content: navbarContentForRt, id: 'btn-open-itunes-modal', checkMinWidth: true },
+  { file: 'Navbar', content: navbarContentForRt, id: 'btn-reload-data', checkMinWidth: true },
+  { file: 'ConnectionModal', content: connModalContent, id: 'btn-close-connection-modal' },
+  { file: 'ConnectionModal', content: connModalContent, id: 'btn-toggle-token-visibility' },
+  { file: 'ConnectionModal', content: connModalContent, id: 'btn-test-connection' },
+  { file: 'ConnectionModal', content: connModalContent, id: 'btn-save-connection' },
+  { file: 'ConnectionModal', content: connModalContent, id: 'btn-reset-connection' },
+  { file: 'ConnectionModal', content: connModalContent, id: 'btn-reset-demo-data' },
+  { file: 'ConnectionModal', content: connModalContent, id: 'btn-cancel-connection-modal' }
+];
+connectionTouchButtons.forEach(btn => {
+  const regex = new RegExp(`id=["']${btn.id}["'][^>]*class=["']([^"']*)["']`, 'i');
+  const match = btn.content.match(regex);
+  const cls = match && match[1] ? match[1] : '';
+  const has44pxHeight = cls.includes('min-h-[44px]');
+  const has44pxWidth = !btn.checkMinWidth || cls.includes('min-w-[44px]');
+  recordResult(
+    `${btn.file}: ${btn.id} 44pxタッチターゲット確保`,
+    Boolean(has44pxHeight && has44pxWidth),
+    `${btn.id} に min-h-[44px]${btn.checkMinWidth ? ' / min-w-[44px]' : ''} が未設定 (class="${cls}")`,
+    'HIGH'
+  );
+});
+
+const headerMatchRt = navbarContentForRt.match(/<header[^>]*id=["']app-header["'][^>]*class=["']([^"']*)["']/i);
+const headerClassRt = headerMatchRt && headerMatchRt[1] ? headerMatchRt[1] : '';
+recordResult(
+  'Navbar: #app-header 320px幅折り返し・高さ拡張対応 (BUG-001)',
+  headerClassRt.includes('flex-wrap') && /min-h-/.test(headerClassRt),
+  `#app-header に flex-wrap / min-h-* が不足 (class="${headerClassRt}")`,
+  'HIGH'
+);
+
+recordResult(
+  'dist/index.html: google.script.run / <base target="_top"> / サーバー機密情報非混入',
+  !distIndexForRt.includes('google.script.run') &&
+  !distIndexForRt.includes('<base target="_top">') &&
+  !distIndexForRt.includes('SPREADSHEET_ID') &&
+  !distIndexForRt.includes('DRIVE_FOLDER_ID') &&
+  !distIndexForRt.includes('PropertiesService'),
+  '公開静的HTMLにGAS専用参照またはサーバー設定キーワードが混入',
+  'CRITICAL'
+);
+
+// -----------------------------------------------------------------------------
 // 結果サマリー
 // -----------------------------------------------------------------------------
 console.log('\n================================================================');
@@ -1578,6 +1856,7 @@ if (findings.length > 0) {
   findings.forEach((f, idx) => {
     console.log(`${idx + 1}. [${f.severity}] ${f.testName}: ${f.detail}`);
   });
+  process.exit(1);
 }
 
 })();

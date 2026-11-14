@@ -17,6 +17,8 @@ class App {
     this.currentSearchTarget = 'pc'; // 'pc' | 'mobile'  
     this.driveArtworkContext = null; // 'editAlbum' | 'manual'  
     this.isDeletingAlbums = false; // アルバム削除API通信待機中フラグ (BUG-002)
+    this.isTestingConnection = false; // 接続テスト実行中フラグ
+    this.isSavingConnection = false; // 接続設定保存・切替中フラグ
   }  
 
   /**  
@@ -24,6 +26,7 @@ class App {
    */  
   async init() {  
     this.bindEvents();  
+    this.updateConnectionStatusUI();  
     this.handleResize();  
     await this.loadInitialData();  
   }  
@@ -434,6 +437,53 @@ class App {
       btnConfirmExecuteDelete.addEventListener('click', () => this.executeDeleteAlbums());
     }
 
+    // 接続設定モーダル イベント
+    const btnOpenConnection = document.getElementById('btn-open-connection-modal');
+    if (btnOpenConnection) {
+      btnOpenConnection.addEventListener('click', () => this.openConnectionModal());
+    }
+    const btnCloseConnection = document.getElementById('btn-close-connection-modal');
+    if (btnCloseConnection) {
+      btnCloseConnection.addEventListener('click', () => this.closeConnectionModal());
+    }
+    const btnCancelConnection = document.getElementById('btn-cancel-connection-modal');
+    if (btnCancelConnection) {
+      btnCancelConnection.addEventListener('click', () => this.closeConnectionModal());
+    }
+    const modalConnection = document.getElementById('modal-connection');
+    if (modalConnection) {
+      modalConnection.addEventListener('click', (e) => {
+        if (e.target === modalConnection) {
+          this.closeConnectionModal();
+        }
+      });
+    }
+    const btnToggleTokenVisibility = document.getElementById('btn-toggle-token-visibility');
+    if (btnToggleTokenVisibility) {
+      btnToggleTokenVisibility.addEventListener('click', () => {
+        const tokenInput = document.getElementById('connection-api-token');
+        if (tokenInput) {
+          tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
+        }
+      });
+    }
+    const btnTestConnection = document.getElementById('btn-test-connection');
+    if (btnTestConnection) {
+      btnTestConnection.addEventListener('click', () => this.handleTestConnection());
+    }
+    const btnSaveConnection = document.getElementById('btn-save-connection');
+    if (btnSaveConnection) {
+      btnSaveConnection.addEventListener('click', () => this.handleSaveAndConnect());
+    }
+    const btnResetConnection = document.getElementById('btn-reset-connection');
+    if (btnResetConnection) {
+      btnResetConnection.addEventListener('click', () => this.handleResetConnection());
+    }
+    const btnResetDemoData = document.getElementById('btn-reset-demo-data');
+    if (btnResetDemoData) {
+      btnResetDemoData.addEventListener('click', () => this.handleResetDemoData());
+    }
+
     // ESCキーで全モーダル＆ドロップダウンを閉じる  
     window.addEventListener('keydown', (e) => {  
       if (e.key === 'Escape') {  
@@ -443,6 +493,7 @@ class App {
         this.closeEditAlbumModal();  
         this.closeDriveArtworkModal();  
         this.closeDeleteConfirmModal();
+        this.closeConnectionModal();
         this.closeSearchDropdown('pc');  
         this.closeSearchDropdown('mobile');  
       }  
@@ -459,11 +510,337 @@ class App {
     this.focusedSearchIndex = -1;  
   }  
 
+  /**
+   * 現在の接続モード表示をナビゲーションバーおよび接続設定モーダルへ同期
+   */
+  updateConnectionStatusUI() {
+    const isHttp = typeof this.api.isHttpApiMode === 'function' && this.api.isHttpApiMode();
+    const dotEl = document.getElementById('connection-mode-dot');
+    const navBadgeEl = document.getElementById('connection-mode-badge');
+    const modalBadgeEl = document.getElementById('connection-current-mode-badge');
+    const reloadBtnEl = document.getElementById('btn-reload-data');
+
+    if (dotEl) {
+      dotEl.classList.remove('bg-amber-400', 'bg-emerald-400');
+      dotEl.classList.add(isHttp ? 'bg-emerald-400' : 'bg-amber-400');
+    }
+    if (navBadgeEl) {
+      navBadgeEl.textContent = isHttp ? 'GAS連携中' : 'デモ/ローカル';
+    }
+    if (modalBadgeEl) {
+      modalBadgeEl.textContent = isHttp ? 'GAS API 連携中' : 'デモ / ローカルモード';
+      modalBadgeEl.classList.remove(
+        'bg-amber-500/15', 'text-amber-300', 'border-amber-500/30',
+        'bg-emerald-500/15', 'text-emerald-300', 'border-emerald-500/30'
+      );
+      if (isHttp) {
+        modalBadgeEl.classList.add('bg-emerald-500/15', 'text-emerald-300', 'border-emerald-500/30');
+      } else {
+        modalBadgeEl.classList.add('bg-amber-500/15', 'text-amber-300', 'border-amber-500/30');
+      }
+    }
+    if (reloadBtnEl) {
+      reloadBtnEl.title = isHttp ? 'GAS バックエンドから再読み込み' : 'ローカルデータを再読み込み';
+    }
+  }
+
+  /**
+   * 接続設定モーダル内のステータスメッセージを設定
+   * @param {string|null} message
+   * @param {'info'|'success'|'warning'|'error'} [type='info']
+   */
+  setConnectionStatusMessage(message, type = 'info') {
+    const statusEl = document.getElementById('connection-status-message');
+    if (!statusEl) return;
+
+    statusEl.classList.remove(
+      'hidden',
+      'bg-indigo-950/50', 'border-indigo-700/60', 'text-indigo-200',
+      'bg-emerald-950/50', 'border-emerald-700/60', 'text-emerald-200',
+      'bg-amber-950/50', 'border-amber-700/60', 'text-amber-200',
+      'bg-rose-950/50', 'border-rose-700/60', 'text-rose-200'
+    );
+
+    if (!message) {
+      statusEl.textContent = '';
+      statusEl.classList.add('hidden');
+      return;
+    }
+
+    const styleMap = {
+      success: ['bg-emerald-950/50', 'border-emerald-700/60', 'text-emerald-200'],
+      warning: ['bg-amber-950/50', 'border-amber-700/60', 'text-amber-200'],
+      error: ['bg-rose-950/50', 'border-rose-700/60', 'text-rose-200'],
+      info: ['bg-indigo-950/50', 'border-indigo-700/60', 'text-indigo-200']
+    };
+    const classes = styleMap[type] || styleMap.info;
+    statusEl.classList.add(...classes);
+    statusEl.textContent = message;
+  }
+
+  /**
+   * 接続設定モーダルの通信中ボタン制御
+   * @param {boolean} busy
+   * @param {'test'|'save'|null} [activeAction=null]
+   */
+  setConnectionModalBusy_(busy, activeAction = null) {
+    const btnTest = document.getElementById('btn-test-connection');
+    const btnSave = document.getElementById('btn-save-connection');
+    const btnReset = document.getElementById('btn-reset-connection');
+    const btnResetDemo = document.getElementById('btn-reset-demo-data');
+    const btnClose = document.getElementById('btn-close-connection-modal');
+    const btnCancel = document.getElementById('btn-cancel-connection-modal');
+
+    [btnTest, btnSave, btnReset, btnResetDemo, btnClose, btnCancel].forEach((btn) => {
+      if (btn) btn.disabled = busy;
+    });
+
+    const testText = btnTest ? btnTest.querySelector('.connection-test-btn-text') : null;
+    const testSpinner = btnTest ? btnTest.querySelector('.connection-test-spinner') : null;
+    const saveText = btnSave ? btnSave.querySelector('.connection-save-btn-text') : null;
+    const saveSpinner = btnSave ? btnSave.querySelector('.connection-save-spinner') : null;
+
+    if (testText) testText.classList.toggle('hidden', busy && activeAction === 'test');
+    if (testSpinner) testSpinner.classList.toggle('hidden', !(busy && activeAction === 'test'));
+    if (saveText) saveText.classList.toggle('hidden', busy && activeAction === 'save');
+    if (saveSpinner) saveSpinner.classList.toggle('hidden', !(busy && activeAction === 'save'));
+  }
+
+  /**
+   * 接続設定モーダルを開く
+   * @param {string|null} [initialErrorMessage=null]
+   */
+  openConnectionModal(initialErrorMessage = null) {
+    const modal = document.getElementById('modal-connection');
+    const urlInput = document.getElementById('connection-endpoint-url');
+    const tokenInput = document.getElementById('connection-api-token');
+    const cfg = typeof this.api.getConnectionConfig === 'function'
+      ? this.api.getConnectionConfig()
+      : { mode: 'local_demo', endpointUrl: '', apiToken: '' };
+
+    if (urlInput) urlInput.value = cfg.endpointUrl || '';
+    if (tokenInput) {
+      tokenInput.value = cfg.apiToken || '';
+      tokenInput.type = 'password';
+    }
+
+    this.updateConnectionStatusUI();
+    if (initialErrorMessage) {
+      this.setConnectionStatusMessage(initialErrorMessage, 'error');
+    } else {
+      this.setConnectionStatusMessage(null);
+    }
+
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  /**
+   * 接続設定モーダルを閉じる
+   */
+  closeConnectionModal() {
+    if (this.isTestingConnection || this.isSavingConnection) {
+      return;
+    }
+    const modal = document.getElementById('modal-connection');
+    const tokenInput = document.getElementById('connection-api-token');
+    if (tokenInput) tokenInput.type = 'password';
+    if (modal) modal.classList.add('hidden');
+  }
+
+  /**
+   * モード切替時に選択状態・検索状態・各種モーダル DOM を安全にリセットする
+   */
+  resetSelectionStateForModeChange_() {
+    this.store.state.selectedArtist = null;
+    this.store.state.selectedAlbum = null;
+    this.store.state.isAlbumSelectMode = false;
+    this.store.state.selectedAlbumKeysForDeletion.clear();
+    this.store.state.artistFilter = '';
+    this.store.state.searchQuery = '';
+    this.store.state.itunesSearchResults = [];
+    this.store.state.searchSources = null;
+    this.store.state.selectedItunesAlbum = null;
+
+    const artistFilterInput = document.getElementById('artist-filter-input');
+    const artistFilterClear = document.getElementById('artist-filter-clear');
+    if (artistFilterInput) artistFilterInput.value = '';
+    if (artistFilterClear) artistFilterClear.classList.add('hidden');
+
+    // メイン画面（PC / モバイル）全体横断検索入力とドロップダウンのリセット
+    const headerSearchInput = document.getElementById('header-search-input');
+    const headerSearchClear = document.getElementById('header-search-clear');
+    const pcSearchResults = document.getElementById('pc-search-results');
+    if (headerSearchInput) headerSearchInput.value = '';
+    if (headerSearchClear) headerSearchClear.classList.add('hidden');
+    if (pcSearchResults) pcSearchResults.innerHTML = '';
+
+    const mobileSearchInput = document.getElementById('mobile-search-input');
+    const mobileSearchClear = document.getElementById('mobile-search-clear');
+    const mobileSearchResults = document.getElementById('mobile-search-results');
+    if (mobileSearchInput) mobileSearchInput.value = '';
+    if (mobileSearchClear) mobileSearchClear.classList.add('hidden');
+    if (mobileSearchResults) mobileSearchResults.innerHTML = '';
+
+    if (typeof this.closeSearchDropdown === 'function') {
+      this.closeSearchDropdown('pc');
+      this.closeSearchDropdown('mobile');
+    }
+
+    // iTunes / MusicBrainz 一括登録モーダル DOM の初期状態復元
+    const itunesInput = document.getElementById('itunes-search-input');
+    const itunesResultsContainer = document.getElementById('itunes-results-container');
+    const itunesPreviewEmpty = document.getElementById('itunes-preview-empty');
+    const itunesPreviewContent = document.getElementById('itunes-preview-content');
+    const itunesPreviewArtwork = document.getElementById('itunes-preview-artwork');
+    const itunesPreviewAlbum = document.getElementById('itunes-preview-album');
+    const itunesPreviewArtist = document.getElementById('itunes-preview-artist');
+    const itunesPreviewMeta = document.getElementById('itunes-preview-meta');
+    const itunesPreviewTbody = document.getElementById('itunes-preview-tracks-tbody');
+    const itunesSummary = document.getElementById('itunes-selected-summary');
+    const itunesSubmitBtn = document.getElementById('btn-submit-itunes-batch');
+
+    if (itunesInput) itunesInput.value = '';
+    if (itunesResultsContainer) {
+      itunesResultsContainer.innerHTML = '<div id="itunes-results-placeholder" class="p-8 text-center text-slate-500 text-xs">キーワードを入力して検索してください</div>';
+    }
+    if (itunesPreviewContent) itunesPreviewContent.classList.add('hidden');
+    if (itunesPreviewEmpty) itunesPreviewEmpty.classList.remove('hidden');
+    if (itunesPreviewArtwork) itunesPreviewArtwork.src = '';
+    if (itunesPreviewAlbum) itunesPreviewAlbum.textContent = '';
+    if (itunesPreviewArtist) itunesPreviewArtist.textContent = '';
+    if (itunesPreviewMeta) itunesPreviewMeta.textContent = '';
+    if (itunesPreviewTbody) itunesPreviewTbody.innerHTML = '';
+    if (itunesSummary) itunesSummary.textContent = 'アルバムを選択してください';
+    if (itunesSubmitBtn) itunesSubmitBtn.disabled = true;
+
+    if (window.innerWidth < 768) {
+      this.setMobileStep(1);
+    }
+  }
+
+  /**
+   * 接続テスト実行
+   */
+  async handleTestConnection() {
+    if (this.isTestingConnection || this.isSavingConnection) return;
+
+    const url = (document.getElementById('connection-endpoint-url')?.value || '').trim();
+    const token = (document.getElementById('connection-api-token')?.value || '').trim();
+
+    this.isTestingConnection = true;
+    this.setConnectionModalBusy_(true, 'test');
+    this.setConnectionStatusMessage('GAS バックエンドへ接続テストを実行中...', 'info');
+
+    try {
+      const res = await this.api.testConnection(url, token);
+      this.setConnectionStatusMessage(
+        `接続成功: GAS バックエンドと正常に疎通しました（現在 ${res.totalTracks} 件の楽曲データ）。`,
+        'success'
+      );
+    } catch (err) {
+      this.setConnectionStatusMessage(
+        `接続テスト失敗: ${err.message || '接続に失敗しました'}`,
+        'error'
+      );
+    } finally {
+      this.isTestingConnection = false;
+      this.setConnectionModalBusy_(false);
+    }
+  }
+
+  /**
+   * 接続テストを実施した上で GAS 接続設定を保存・有効化
+   */
+  async handleSaveAndConnect() {
+    if (this.isTestingConnection || this.isSavingConnection) return;
+
+    const url = (document.getElementById('connection-endpoint-url')?.value || '').trim();
+    const token = (document.getElementById('connection-api-token')?.value || '').trim();
+
+    this.isSavingConnection = true;
+    this.setConnectionModalBusy_(true, 'save');
+    this.setConnectionStatusMessage('接続と認証を検証して保存中...', 'info');
+
+    try {
+      await this.api.testConnection(url, token);
+      this.api.saveAndActivateHttpConfig(url, token);
+      this.resetSelectionStateForModeChange_();
+      this.updateConnectionStatusUI();
+
+      this.isSavingConnection = false;
+      this.setConnectionModalBusy_(false);
+      this.closeConnectionModal();
+
+      const loaded = await this.loadInitialData();
+      if (loaded) {
+        Utils.showToast('GAS バックエンド連携モードへ切り替えました', 'success');
+      }
+    } catch (err) {
+      this.setConnectionStatusMessage(
+        `保存できませんでした: ${err.message || '接続または認証に失敗しました'}`,
+        'error'
+      );
+    } finally {
+      this.isSavingConnection = false;
+      this.setConnectionModalBusy_(false);
+    }
+  }
+
+  /**
+   * 接続設定をリセットしローカル/デモモードへ戻す
+   */
+  async handleResetConnection() {
+    if (this.isTestingConnection || this.isSavingConnection) return;
+
+    this.api.resetToLocalMode();
+    this.resetSelectionStateForModeChange_();
+    this.updateConnectionStatusUI();
+    this.closeConnectionModal();
+
+    const loaded = await this.loadInitialData();
+    if (loaded) {
+      Utils.showToast('デモ / ローカルモードへ切り替えました', 'info');
+    }
+  }
+
+  /**
+   * ローカルデモデータを初期状態へリセットする
+   */
+  async handleResetDemoData() {
+    if (this.isTestingConnection || this.isSavingConnection) return;
+
+    try {
+      await this.api.resetLocalDemoData();
+      if (typeof this.api.isHttpApiMode === 'function' && this.api.isHttpApiMode()) {
+        this.setConnectionStatusMessage(
+          'ローカル用のデモデータを初期化しました（現在 GAS API 連携中のため画面表示は切り替わっていません）。',
+          'info'
+        );
+        Utils.showToast('ローカル用デモデータを初期化しました', 'info');
+      } else {
+        this.resetSelectionStateForModeChange_();
+        this.closeConnectionModal();
+        const loaded = await this.loadInitialData();
+        if (loaded) {
+          Utils.showToast('デモデータを初期状態へ復元しました', 'success');
+        }
+      }
+    } catch (err) {
+      this.setConnectionStatusMessage(`デモデータ初期化失敗: ${err.message}`, 'error');
+      Utils.showToast(`デモデータ初期化失敗: ${err.message}`, 'error');
+    }
+  }
+
   /**  
-   * スプレッドシートからの全データ初期ロード  
+   * 現在のモードに応じた全データ初期ロード  
+   * @returns {Promise<boolean>} ロード成功時 true、失敗時 false
    */  
   async loadInitialData() {  
-    Utils.toggleGlobalLoading(true, 'スプレッドシートから楽曲カタログを取得中...');  
+    const isHttp = typeof this.api.isHttpApiMode === 'function' && this.api.isHttpApiMode();
+    Utils.toggleGlobalLoading(
+      true,
+      isHttp ? 'GAS バックエンドから楽曲カタログを取得中...' : 'ローカルデータを読み込み中...'
+    );  
     try {  
       const data = await this.api.getAllData();  
       this.store.setTracks(data.tracks || []);  
@@ -479,11 +856,26 @@ class App {
         }  
       }  
 
+      this.updateConnectionStatusUI();  
       this.renderAll();  
       Utils.showToast(`${this.store.state.allTracks.length} 件の楽曲を読み込みました`, 'success');  
+      return true;
     } catch (err) {  
       console.error(err);  
+      this.renderAll();  
       Utils.showToast(`データ取得失敗: ${err.message}`, 'error', 6000);  
+      if (isHttp && (
+        err.code === 'API_DISABLED' ||
+        err.code === 'UNAUTHORIZED' ||
+        err.code === 'INVALID_RESPONSE' ||
+        err.code === 'NETWORK_ERROR' ||
+        err.code === 'REQUEST_TIMEOUT'
+      )) {
+        this.openConnectionModal(
+          `GAS バックエンドからのデータ取得に失敗しました: ${err.message || '通信エラー'}。設定を見直すか「ローカルモードへリセット」を押してください。`
+        );
+      }
+      return false;
     } finally {  
       Utils.toggleGlobalLoading(false);  
     }  
@@ -1198,7 +1590,11 @@ class App {
         }  
       }  
     } catch (err) {  
-      Utils.showToast(`アルバム検索エラー: ${err.message}`, 'error');  
+      if (err && err.code === 'LOCAL_MODE_UNSUPPORTED') {
+        Utils.showToast(err.message, 'warning', 6000);
+      } else {
+        Utils.showToast(`アルバム検索エラー: ${err.message}`, 'error');
+      }
     } finally {  
       if (searchBtn) searchBtn.disabled = false;  
       if (btnText) btnText.classList.remove('hidden');  
@@ -1360,7 +1756,11 @@ class App {
 
       if (submitBtn) submitBtn.disabled = false;  
     } catch (err) {  
-      Utils.showToast(`プレビュー取得失敗: ${err.message}`, 'error');  
+      if (err && err.code === 'LOCAL_MODE_UNSUPPORTED') {
+        Utils.showToast(err.message, 'warning', 6000);
+      } else {
+        Utils.showToast(`プレビュー取得失敗: ${err.message}`, 'error');
+      }
     } finally {  
       Utils.toggleGlobalLoading(false);  
     }  
@@ -1384,7 +1784,11 @@ class App {
     if (spinner) spinner.classList.remove('hidden');  
     if (submitBtn) submitBtn.disabled = true;  
 
-    Utils.toggleGlobalLoading(true, 'Google Driveへジャケット保存およびスプレッドシートへ一括書き込み中...');  
+    const isHttp = typeof this.api.isHttpApiMode === 'function' && this.api.isHttpApiMode();
+    Utils.toggleGlobalLoading(
+      true,
+      isHttp ? 'Google Driveへジャケット保存およびスプレッドシートへ一括書き込み中...' : 'ローカルデータへ一括登録中...'
+    );  
 
     try {  
       const payload = {  
@@ -1682,19 +2086,22 @@ class App {
     const uploadBtn = document.getElementById(isEdit ? 'btn-edit-album-upload' : 'btn-manual-upload');  
     const spinner = uploadBtn ? uploadBtn.querySelector(isEdit ? '.edit-album-upload-spinner' : '.manual-upload-spinner') : null;  
 
+    const defaultPreviewSvg = (typeof Utils.getDefaultArtworkSvg === 'function') ? Utils.getDefaultArtworkSvg() : '';  
+    const previousUrl = urlInputEl ? urlInputEl.value.trim() : '';  
+
     let base64Data = '';  
     let uploadMimeType = validation.mimeType;  
     try {  
       if (typeof Utils.resizeImage === 'function') {  
         base64Data = await Utils.resizeImage(file, { maxWidth: 800, maxHeight: 800, quality: 0.85 });  
-        const headerMatch = base64Data.match(/^data:([^;]+);base64,/i);
+        const headerMatch = base64Data.match(/^data:([^;]+);base64,/i);  
         uploadMimeType = headerMatch ? headerMatch[1].toLowerCase() : 'image/jpeg';  
       } else {  
         base64Data = await Utils.readFileAsBase64(file);  
       }  
       if (previewEl) {  
         previewEl.onerror = () => {  
-          previewEl.src = Utils.getDefaultArtworkSvg();  
+          previewEl.src = defaultPreviewSvg;  
         };  
         previewEl.src = base64Data;  
       }  
@@ -1739,6 +2146,10 @@ class App {
       Utils.showToast('アルバムアートをアップロードしました', 'success');  
     } catch (uploadErr) {  
       console.error('画像アップロードエラー:', uploadErr);  
+      if (previewEl) {  
+        const restoreUrl = urlInputEl ? urlInputEl.value.trim() : '';  
+        previewEl.src = restoreUrl || previousUrl || defaultPreviewSvg;  
+      }  
       Utils.showToast('アップロード失敗: ' + (uploadErr.message || 'エラーが発生しました'), 'error');  
     } finally {  
       if (uploadBtn) uploadBtn.disabled = false;  
@@ -1830,11 +2241,16 @@ class App {
       Utils.showToast('Google ドライブから画像を適用しました', 'success');  
     } catch (err) {  
       console.error('Google Drive画像解決エラー:', err);  
+      const isLocalUnsupported = err && err.code === 'LOCAL_MODE_UNSUPPORTED';
       if (errorEl) {  
         errorEl.textContent = err.message || 'Drive画像の取得・複製に失敗しました。';  
         errorEl.classList.remove('hidden');  
       }  
-      Utils.showToast('Drive画像適用エラー: ' + (err.message || 'エラーが発生しました'), 'error');  
+      Utils.showToast(
+        isLocalUnsupported ? err.message : ('Drive画像適用エラー: ' + (err.message || 'エラーが発生しました')),
+        isLocalUnsupported ? 'warning' : 'error',
+        isLocalUnsupported ? 6000 : 3000
+      );  
     } finally {  
       if (btnSubmit) btnSubmit.disabled = false;  
       if (btnCancel) btnCancel.disabled = false;  
@@ -2121,7 +2537,11 @@ class App {
     spinners.forEach(s => s.classList.remove('hidden'));  
     btnTexts.forEach(t => t.textContent = '保存中...');  
 
-    Utils.toggleGlobalLoading(true, 'スプレッドシート上のアルバムデータを一括更新中...');  
+    const isHttp = typeof this.api.isHttpApiMode === 'function' && this.api.isHttpApiMode();
+    Utils.toggleGlobalLoading(
+      true,
+      isHttp ? 'スプレッドシート上のアルバムデータを一括更新中...' : 'ローカルデータのアルバム情報を一括更新中...'
+    );  
 
     try {  
       const payload = {  
@@ -2328,7 +2748,9 @@ class App {
     }).length;
 
     if (warningEl) {
-      warningEl.textContent = `合計 ${totalTracks} 曲のトラックがスプレッドシートから完全に削除されます。`;
+      const isHttp = typeof this.api.isHttpApiMode === 'function' && this.api.isHttpApiMode();
+      const targetStorageName = isHttp ? 'スプレッドシート' : 'ローカルストレージ';
+      warningEl.textContent = `合計 ${totalTracks} 曲のトラックが${targetStorageName}から完全に削除されます。`;
     }
 
     if (listEl) {

@@ -1,179 +1,135 @@
-# MusicInfo Manager - 音楽CD・アルバムコレクション管理 Web App
+# MusicInfo-app
 
-Google Apps Script (GAS) + Tailwind CSS で構築された、音楽CD・アルバム・楽曲コレクション管理システムです。  
-iTunes Search / Lookup API および MusicBrainz API（Cover Art Archive 連携）を統合したアルバム・トラック一括インポート機能、Google Drive へのジャケット自動保存、および PC・スマートフォン双方で直感的に操作できる 3ペイン／ステップ型 UI を提供します。
+音楽情報（アーティスト・アルバム・トラック・ジャケット画像）を管理する Web アプリケーションです。  
+**GitHub Pages で配信される静的シングル HTML フロントエンド（ハイブリッドモード対応）** と、**Google Apps Script (GAS) JSON API バックエンド** を疎結合に連携させる構成を採用しています。
 
----
+## 主な特徴
 
-## 🌟 主な機能
-
-1. **3ペイン・階層型コレクションブラウジング**
-   - **PC**: 「アーティスト一覧」「アルバムカード一覧」「トラック詳細・ディスク別リスト」を同一画面の3ペインで快適に閲覧。
-   - **スマートフォン**: 3ステップ式画面遷移（STEP 1: アーティスト → STEP 2: アルバム → STEP 3: トラック詳細）で、片手で快適に操作可能。
-
-2. **iTunes & MusicBrainz API 統合検索による一括登録 & 自動ディスク分割**
-   - アルバム名やアーティスト名で iTunes Store と MusicBrainz の両データベースを同時に横断検索し、重複を抑止してマージ表示。
-   - 各候補に出典バッジ（`iTunes` / `MusicBrainz`）や版情報（形態 `CD/DVD`、国コード、枚数、補足注記）を表示。
-   - 収録曲・ディスク番号（`discNumber` / `media.position`）を自動抽出し、プレビュー確認後にワンクリックで一括登録。
-   - 複数枚組アルバム（2枚組ベスト盤や初回盤 CD+DVD など）も「Disc 1」「Disc 2」として正確に分離して管理。
-
-3. **Google Drive ジャケット画像自動保存**
-   - iTunes または Cover Art Archive（MusicBrainz）から取得した 500x500 高解像度ジャケット画像を自動的に Google Drive の指定フォルダへダウンロード・保存。
-   - 永続化された Web 表示用 URL をスプレッドシートへ記録し、ジャケットの拡大プレビュー（モーダル表示）にも対応。
-
-4. **1曲単位の手動登録 & 連続入力アシスト**
-   - 外部 DB に未登録の自主制作盤やインディーズ CD も手動で登録可能。
-   - スマホ入力時は CD番号・トラック番号に自動でテンキー（`inputmode="numeric"`）を展開。
-   - 「続けて次のトラックを登録する」機能により、トラック番号が自動インクリメントされ連続して素早く登録できます。
-
-5. **高速インクリメンタル絞り込み & 全体横断検索**
-   - アーティスト名での即時絞り込み。
-   - ヘッダー検索バーから、曲名・アルバム名・アーティスト名・CD番号での横断検索。一致した楽曲へ即座にジャンプ。
-
-6. **徹底したセキュリティ & パフォーマンス設計**
-   - HTML エスケープによる XSS 完全防護およびスプレッドシート式インジェクション無害化。
-   - スプレッドシートへのバッチ書き込み（`setValues`）による高速保存。
-   - クライアント側インメモリツリーキャッシュによる 100ms 未満のペイン切り替えレスポンス。
+- **ハイブリッドモード動作**:
+  - **デモ / ローカルモード（初期状態）**: 外部通信や GAS 設定なしですぐに試用でき、初回起動時に内蔵デモデータ（3 アーティスト・4 アルバム・複数 Disc 構成・外部通信不要の SVG Data URI ジャケット）をブラウザの `localStorage` に展開して閲覧・編集・ローカル保存できます。
+  - **GAS API 連携モード**: 画面右上の接続設定ボタン（モードバッジ）から GAS Web アプリの `/exec` URL と `API_TOKEN` を設定すると、Google スプレッドシート・Google ドライブ・iTunes Search API・MusicBrainz / Cover Art Archive API を利用した永続管理に切り替わります。
+- **3 ペイン・レスポンシブ UI**: アーティスト一覧 → アルバム一覧 → トラック詳細の 3 ペイン構成（モバイルではステップ切替 UI、タップ領域 44px 以上確保）。
+- **単一ファイル自動バンドル**: `npm run build`（`build.js`）により HTML / CSS / JavaScript を 1 つの `dist/index.html`（および `dist/.nojekyll`）へ出力し、GitHub Actions で GitHub Pages へ自動テスト＆自動デプロイします。
 
 ---
 
-## 📁 ディレクトリ・ファイル構成
+## ディレクトリ構成
 
-```
+```text
 MusicInfo-app/
-├── docs/
-│   ├── REQUIREMENTS.md         # 要件定義書 (v1.2.0)
-│   ├── BASIC_DESIGN.md         # 基本設計書 (v1.1.0)
-│   └── DETAILED_DESIGN.md      # 詳細設計書 (v1.1.0)
-├── src/
-│   ├── appsscript.json         # GAS マニフェスト (OAuthスコープ定義、V8指定)
-│   │
-│   │   ─── 【GAS バックエンド オブジェクト指向クラス群】 ───
-│   ├── Config.js               # 設定・スクリプトプロパティ管理クラス (Config)
-│   ├── SheetService.js         # スプレッドシート読み書き・初期化・データ整形クラス (SheetService)
-│   ├── DriveService.js         # Google Drive画像ダウンロード・保存・URL生成クラス (DriveService)
-│   ├── ItunesService.js        # iTunes API通信・500x500変換・トラック抽出 (ItunesService)
-│   ├── MusicBrainzService.js   # MusicBrainz WS v2 / Cover Art Archive 連携・レート制限クラス (MusicBrainzService)
-│   ├── MusicService.js         # 業務ロジック統括・検索結果マージクラス (MusicService)
-│   ├── Code.js                 # Web Appsエントリポイント (doGet, include, apiディスパッチャ)
-│   │
-│   │   ─── 【フロントエンド UI コンポーネント (HTML)】 ───
-│   ├── index.html              # ビルド済み単一バンドルHTML (GASデプロイ対象)
-│   ├── index.template.html     # ビルド元HTMLテンプレート
-│   ├── Styles.html             # Tailwind CSS設定、カスタムスクロールバー、アニメーションCSS
-│   ├── Navbar.html             # ヘッダー、全体検索バー、各種登録ボタン
-│   ├── ArtistList.html         # STEP 1 アーティスト一覧コンポーネント
-│   ├── AlbumList.html          # STEP 2 アルバムカード一覧コンポーネント
-│   ├── TrackDetail.html        # STEP 3 トラック詳細・ディスク別テーブルコンポーネント
-│   ├── ItunesModal.html        # アルバム統合検索（iTunes / MusicBrainz）・プレビュー一括登録モーダル
-│   ├── ManualModal.html        # 手動楽曲登録フォーム (連続入力アシスト・テンキー対応)
-│   ├── EditAlbumModal.html     # アルバム・収録曲一括編集モーダル
-│   ├── ImageModal.html         # アルバムアート拡大プレビューモーダル
-│   │
-│   │   ─── 【フロントエンド ロジック クラス群 (JavaScript)】 ───
-│   ├── ScriptsUtils.html       # XSSサニタイズ (escapeHtml)、トースト通知等 (Utils)
-│   ├── ScriptsApiClient.html   # バックエンド非同期通信クライアントクラス (ApiClient)
-│   ├── ScriptsState.html       # フロントエンド状態管理クラス (Store)
-│   └── ScriptsApp.html         # アプリケーションコントローラークラス (App)
-├── tests/                      # ローカルユニットテスト・モック検証スクリプト
-└── README.md
+├── .github/
+│   └── workflows/
+│       └── deploy-pages.yml          # GitHub Pages 自動ビルド・テスト・デプロイワークフロー
+├── dist/                             # ビルド生成物（Git 追跡対象外 / CI で Pages 公開）
+│   ├── index.html                    # バンドル済み単一ページアプリケーション
+│   └── .nojekyll                     # Jekyll 処理無効化マーカー
+├── src/                              # ソースコード一式
+│   ├── appsscript.json               # GAS マニフェスト（access: ANYONE_ANONYMOUS）
+│   ├── Code.js                       # GAS エントリーポイント (doGet ヘルスチェック, doPost JSON API ディスパッチャ)
+│   ├── Config.js                     # 環境設定・スクリプトプロパティ管理 (API_TOKEN 等)
+│   ├── SheetService.js               # スプレッドシート CRUD / 排他制御 / キャッシュ管理
+│   ├── DriveService.js               # Google ドライブ 画像保存・複製・公開 URL 管理
+│   ├── ItunesService.js              # iTunes Search API 連携
+│   ├── MusicBrainzService.js         # MusicBrainz & Cover Art Archive API 連携
+│   ├── MusicService.js               # バックエンド業務ロジック統合サービス
+│   ├── index.template.html           # フロントエンドルートテンプレート（build.js 用）
+│   ├── Styles.html                   # カスタム CSS・レスポンシブスタイル定義
+│   ├── Navbar.html                   # ナビゲーションバー（モードバッジ・接続設定ボタン含む）
+│   ├── ArtistList.html               # 左ペイン：アーティスト一覧
+│   ├── AlbumList.html                # 中央ペイン：アルバム一覧・一括削除選択 UI
+│   ├── TrackDetail.html              # 右ペイン：トラック詳細・ディスク別表示
+│   ├── ModalForm.html                # 楽曲登録 / iTunes・MusicBrainz 検索 / アルバム編集モーダル
+│   ├── DriveArtworkModal.html        # Google ドライブ画像取り込みモーダル
+│   ├── DeleteConfirmModal.html       # アルバム一括削除確認モーダル
+│   ├── ConnectionModal.html          # GAS 接続設定・接続テスト・モード切替モーダル
+│   ├── ScriptsApiClient.html         # 通信ファサード (ConnectionConfigStore / HttpJsonTransport / LocalDemoTransport)
+│   ├── ScriptsUtils.html             # サニタイズ・画像リサイズ・トースト通知等の共通ユーティリティ
+│   ├── ScriptsState.html             # フロントエンド状態管理 Store
+│   └── ScriptsApp.html               # UI イベント・描画・ハイブリッドモード制御コントローラー
+├── tests/                            # Node.js 自動テストスイート
+│   ├── run_tests.js                  # 単体テスト・API 契約・バンドル整合性・ハイブリッド統合テスト
+│   ├── red_team_attack_test.js       # セキュリティ・プロトタイプ汚染・XSS・UI 耐性 Red Team テスト
+│   └── qa_comprehensive_verification.js # QA 包括検証テスト
+├── build.js                          # dist/index.html & dist/.nojekyll 生成スクリプト
+├── package.json                      # npm スクリプト定義 (build / test / prepush 等)
+├── .claspignore                      # clasp push 時の除外設定（dist/**, .github/**, src/*.html を除外）
+└── .gitignore                        # dist/, node_modules/, .clasprc.json 等の Git 除外設定
 ```
 
----
-
-## 📊 スプレッドシート データ構造
-
-シート名: `MusicTracks` (初回起動時に自動作成・装飾されます)
-
-| 列番号 | カラム名 | 説明 | 例 |
-| :---: | :--- | :--- | :--- |
-| **A列** | CD番号 | ディスク番号 (正整数) | `1`, `2` |
-| **B列** | アルバムアーティスト名 | アルバム全体の代表アーティスト | `Official髭男dism` |
-| **C列** | アルバム名 | アルバムタイトル | `Editorial` |
-| **D列** | アーティスト名 | 楽曲個別のアーティスト名 | `Official髭男dism` |
-| **E列** | トラック番号 | 収録トラック番号 (正整数) | `1`, `2`, `3` |
-| **F列** | トラック名 | 曲名 | `Cry Baby` |
-| **G列** | リリース日 | 発売日 (`YYYY-MM-DD` / `YYYY-MM` / `YYYY` 形式) | `2021-08-18` |
-| **H列** | アルバムアートURL | Google Drive 保存先Web表示用URL | `https://lh3.googleusercontent.com/d/...` |
+> **補足**: 旧構成の `src/index.html` および GAS 側 `HtmlService` 配信（`include`）は廃止されました。フロントエンドは `dist/index.html` へ統一されています。
 
 ---
 
-## 🚀 デプロイ・初期セットアップ手順
+## セットアップ手順
 
-### 1. スプレッドシートと Google ドライブフォルダの準備
-1. Google スプレッドシートを新規作成し、URL から **スプレッドシートID** を取得します。
-   - URL形式: `https://docs.google.com/spreadsheets/d/【この部分がスプレッドシートID】/edit`
-2. Google ドライブでジャケット画像保存用のフォルダを作成し、URL から **フォルダID** を取得します。
-   - URL形式: `https://drive.google.com/drive/folders/【この部分がフォルダID】`
+### 1. GAS バックエンドのセットアップ（GAS 連携を使う場合）
 
-### 2. GAS プロジェクトの作成とコード配置
-#### 方法 A: Google Apps Script エディタから手動配置
-1. 作成したスプレッドシートのメニューから「拡張機能」>「Apps Script」を開きます（または独立したスタンドアロンスクリプトを新規作成）。
-2. プロジェクトの「プロジェクトの設定」歯車アイコンをクリックし、「「appsscript.json」マニフェスト ファイルをエディタで表示する」にチェックを入れます。
-3. `src/` 配下の全22ファイル（テンプレート除くデプロイ対象）を同名で作成・コピー＆ペーストします。
-   - スクリプトファイル (`.js`): `Config`, `SheetService`, `DriveService`, `ItunesService`, `MusicBrainzService`, `MusicService`, `Code`
-   - HTMLファイル (`.html`): `index`, `Styles`, `Navbar`, `ArtistList`, `AlbumList`, `TrackDetail`, `ItunesModal`, `ManualModal`, `EditAlbumModal`, `ImageModal`, `ScriptsUtils`, `ScriptsApiClient`, `ScriptsState`, `ScriptsApp`
-   - マニフェスト: `appsscript.json`
+GitHub Pages 上のデモ／ローカルモードだけを利用する場合、GAS の構築は不要です。スプレッドシートや Google ドライブと連携する場合は、以下の手順で GAS バックエンドを構築します。
 
-#### 方法 B: Clasp を用いた CLI デプロイ (推奨)
-本プロジェクトには `@google/clasp` が導入済みです。以下の手順で簡単にデプロイできます。
+1. **Google スプレッドシートと Google ドライブフォルダを用意する**
+   - データ保存用のスプレッドシートを作成し、URL から `SPREADSHEET_ID` を控えます。
+   - ジャケット画像保存用の Google ドライブフォルダを作成し、URL から `DRIVE_FOLDER_ID` を控えます。
+2. **GAS プロジェクトへバックエンドコードを反映する**
+   - `.claspignore` により `dist/**`・`.github/**`・`src/*.html` は自動的に除外され、バックエンド用 `.js` と `src/appsscript.json` のみがプッシュされます。
+   ```bash
+   npx clasp push
+   ```
+3. **スクリプトプロパティを設定する**
+   - GAS エディタの「プロジェクトの設定」→「スクリプト プロパティ」に以下を登録します。
+
+| プロパティ名 | 必須 | 説明 | 例・デフォルト値 |
+| :--- | :---: | :--- | :--- |
+| `SPREADSHEET_ID` | **必須** | 楽曲データを保存するスプレッドシート ID | `1AbCdEf...` |
+| `DRIVE_FOLDER_ID` | **必須** | ジャケット画像を保存するドライブフォルダ ID | `1XyZaBc...` |
+| `API_TOKEN` | **連携時必須** | 外部 HTTP JSON API (`doPost`) 認証用の推測困難なトークン。**未設定時は安全のため API が無効 (`API_DISABLED`) になります** | 長いランダム文字列（32文字以上推奨） |
+| `SHEET_NAME` | 任意 | 使用するシートタブ名 | `MusicTracks` |
+| `MUSICBRAINZ_ENABLED` | 任意 | MusicBrainz API 連携の有効/無効 (`"false"` で無効) | `true` |
+| `MUSICBRAINZ_USER_AGENT` | 任意 | MusicBrainz API リクエスト時の User-Agent | `MusicInfoApp/1.0 (...)` |
+
+4. **GAS Web アプリとしてデプロイする**
+   - GAS エディタの「デプロイ」→「新しいデプロイ」→ 種類「ウェブアプリ」を選択します。
+   - **次のユーザーとして実行**: `自分` (`USER_DEPLOYING`)
+   - **アクセスできるユーザー**: `全員（匿名含む）` (`ANYONE_ANONYMOUS`)
+   - デプロイ後に発行される **ウェブアプリ URL（末尾 `/exec`）** を控えます。
+   - ※ 外部からアクセス可能にする一方、実データの読み書きはすべて `doPost` 内の `API_TOKEN` 定数時間照合により保護されます。
+
+---
+
+### 2. GitHub Pages 公開設定
+
+本リポジトリは GitHub Actions（`.github/workflows/deploy-pages.yml`）による自動デプロイに対応しています。
+
+1. GitHub リポジトリの **Settings** → **Pages** を開きます。
+2. **Build and deployment** の **Source** を **GitHub Actions** に変更します。
+3. `main` ブランチへプッシュ（または Actions タブから `Deploy Frontend to GitHub Pages` を `workflow_dispatch` で手動実行）すると、自動ビルド・自動テスト実行後に `dist/` が GitHub Pages へ公開されます。
+
+---
+
+### 3. アプリ画面からの接続設定手順
+
+1. 公開した GitHub Pages URL（またはローカルサーバー）を開くと、初期状態は **「デモ/ローカル」** モードで起動します。
+2. 画面右上のステータスバッジ（「デモ/ローカル」ボタン）をクリックし、接続設定モーダルを開きます。
+3. **GAS Web App URL**（`https://script.google.com/macros/s/.../exec` または Google Workspace ドメインの `/a/macros/<domain>/s/.../exec`）と **API_TOKEN** を入力します。
+4. **「接続テスト」** で疎通・認証を確認した後、**「保存して接続」** を押すと **「GAS連携中」** モードへ切り替わり、スプレッドシートのデータが読み込まれます。
+
+> **セキュリティ上の注意**: 接続設定（URL と `API_TOKEN`）およびローカルモードのデータはブラウザの `localStorage` に保存されます。共有 PC・公共端末で利用した場合は、作業終了時に接続設定モーダルから **「設定をリセット（ローカルへ戻る）」** を実行してください。
+
+---
+
+## ローカル開発・テスト手順
+
+本プロジェクトのビルドとテストは外部 npm パッケージへの実行時依存を持たず、Node.js 標準モジュールのみで実行できます（テスト用 `npm install` や `npm ci` は不要です）。
 
 ```bash
-# 1. Google アカウントでログイン
-npm run login
-# または: clasp login
+# 1. フロントエンドをビルドし、dist/index.html と dist/.nojekyll を生成
+npm run build
 
-# 2. .clasp.json の設定 (.clasp.json.sample からコピーして scriptId を記入)
-# cp .clasp.json.sample .clasp.json
-# Windows PowerShell の場合:
-Copy-Item .clasp.json.sample .clasp.json
-# エディタで .clasp.json の YOUR_SCRIPT_ID_HERE を作成したGASプロジェクトのIDに書き換えます
-
-# 3. バンドルビルド＆ソースコードを GAS に一括アップロード
-npm run push
-# または: npm run build && clasp push
-```
-
----
-
-### 3. スクリプトプロパティの設定
-GAS エディタ画面左側の「プロジェクトの設定」（歯車アイコン）を開き、「スクリプト プロパティ」に以下を追加します。
-
-| プロパティ名 | 設定値 | 説明 |
-| :--- | :--- | :--- |
-| `SPREADSHEET_ID` | `xxxxxxxxxxxxxxxxxxxx` | 準備したスプレッドシートのID（必須） |
-| `DRIVE_FOLDER_ID` | `yyyyyyyyyyyyyyyyyyyy` | 準備したジャケット保存フォルダのID（必須） |
-| `SHEET_NAME` | `MusicTracks` | シート名（任意・省略時デフォルト: `MusicTracks`） |
-| `MUSICBRAINZ_USER_AGENT` | `MusicInfoApp/1.0 ( https://... )` | MusicBrainz API 通信時のカスタム User-Agent（任意・省略時はデフォルトUAを使用） |
-| `MUSICBRAINZ_ENABLED` | `true` / `false` | MusicBrainz 検索連携の有効/無効スイッチ（任意・`'false'` または `'0'` 指定時のみ無効化、デフォルト: `true`） |
-
-### 4. Web アプリケーションとしてデプロイ
-1. GAS エディタ右上の「デプロイ」>「新しいデプロイ」をクリックします。
-2. 種類の選択で「ウェブアプリ」を選択します。
-3. 以下の通り設定します：
-   - **次のユーザーとして実行**: `自分 (USER_DEPLOYING)`
-   - **アクセスできるユーザー**: `全員 (ANYONE)`
-4. 「デプロイ」をクリックし、初回認証ダイアログ（スプレッドシート、Google Drive、外部接続の権限）を承認します。
-5. 発行された **ウェブアプリ URL** にアクセスすると、アプリケーションが起動します。
-
----
-
-## 🧪 テストおよびローカル検証
-
-Node.js 環境でビジネスロジックやデータモデルの構文チェック・ユニットテストおよびハッカー視点のレッドチーム破壊テストを実行できます。
-
-```bash
-# 全テスト (単体テスト 43項目 + レッドチーム攻撃テスト 56項目) の実行
+# 2. 単体テストおよび Red Team セキュリティテストを実行
 npm test
 
-# 単体テストのみ実行
-npm run test:unit
+# 3. QA 包括検証テストを実行
+node tests/qa_comprehensive_verification.js
 
-# レッドチーム攻撃テストのみ実行
-npm run test:redteam
+# 4. 生成された dist/ をローカル HTTP サーバーで確認
+npx serve dist
 ```
-
----
-
-## 📄 ライセンス
-MIT License
