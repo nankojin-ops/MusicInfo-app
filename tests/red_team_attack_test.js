@@ -1005,19 +1005,33 @@ const hasEditFormPreventDefault = editAlbumModalContent.includes('form-edit-albu
                                   editAlbumModalContent.includes('onsubmit="event.preventDefault();"');
 recordResult('EditAlbumModal: Enterキー誤送信／不正リロード抑止 (onsubmit="event.preventDefault();")', hasEditFormPreventDefault, 'form に onsubmit="event.preventDefault();" が未設定', 'HIGH');
 
-// 5.3.2 EditAlbumModal.html の各種ボタン WCAG 44px ターゲット確保
+// 5.3.2 EditAlbumModal.html の各種ボタン WCAG 44px ターゲット確保（個別要素抽出・id→class順・type="button"厳格検証）
 const editButtonsHas44px = [
-  { id: 'btn-close-edit-album', desc: '閉じるボタン (btn-close-edit-album)' },
-  { id: 'btn-mobile-submit-edit-album', desc: 'スマホ用保存ボタン (btn-mobile-submit-edit-album)' },
-  { id: 'btn-renumber-edit-tracks', desc: '自動連番採番ボタン (btn-renumber-edit-tracks)' },
-  { id: 'btn-add-edit-track', desc: 'トラック追加ボタン (btn-add-edit-track)' },
-  { id: 'btn-cancel-edit-album', desc: 'キャンセルボタン (btn-cancel-edit-album)' },
-  { id: 'btn-submit-edit-album', desc: 'PC用保存ボタン (btn-submit-edit-album)' }
+  { id: 'btn-close-edit-album', desc: '閉じるボタン (btn-close-edit-album)', requireMinWidth: true },
+  { id: 'btn-mobile-submit-edit-album', desc: 'スマホ用保存ボタン (btn-mobile-submit-edit-album)', requireMinWidth: true },
+  { id: 'btn-renumber-edit-tracks', desc: '自動連番採番ボタン (btn-renumber-edit-tracks)', requireMinWidth: false },
+  { id: 'btn-add-edit-track', desc: 'トラック追加ボタン (btn-add-edit-track)', requireMinWidth: false },
+  { id: 'btn-footer-add-edit-track', desc: 'フッター常設トラック追加ボタン (btn-footer-add-edit-track)', requireMinWidth: false },
+  { id: 'btn-cancel-edit-album', desc: 'キャンセルボタン (btn-cancel-edit-album)', requireMinWidth: false },
+  { id: 'btn-submit-edit-album', desc: 'PC用保存ボタン (btn-submit-edit-album)', requireMinWidth: false }
 ];
 
 editButtonsHas44px.forEach((btn) => {
-  const has44px = editAlbumModalContent.includes(btn.id) && editAlbumModalContent.includes('min-h-[44px]');
-  recordResult(`EditAlbumModal: ${btn.desc} 44pxタッチターゲット確保`, has44px, 'min-h-[44px] が指定されていない', 'MEDIUM');
+  const tagMatch = editAlbumModalContent.match(new RegExp(`<button[^>]*id=["']${btn.id}["'][^>]*>`, 'i'));
+  const clsMatch = editAlbumModalContent.match(new RegExp(`<button[^>]*id=["']${btn.id}["'][^>]*class=["']([^"']*)["']`, 'i'));
+  const tag = tagMatch ? tagMatch[0] : '';
+  const cls = clsMatch && clsMatch[1] ? clsMatch[1] : '';
+  const hasTypeButton = /type=["']button["']/i.test(tag);
+  const has44px = Boolean(clsMatch) &&
+    hasTypeButton &&
+    cls.includes('min-h-[44px]') &&
+    (!btn.requireMinWidth || cls.includes('min-w-[44px]'));
+  recordResult(
+    `EditAlbumModal: ${btn.desc} 44pxタッチターゲット確保`,
+    has44px,
+    `${btn.id} に min-h-[44px]${btn.requireMinWidth ? ' / min-w-[44px]' : ''}、type="button"、または id→class 順が不足 (class="${cls}")`,
+    'MEDIUM'
+  );
 });
 
 // 5.3.3 TrackDetail.html の「このアルバムを編集」ボタン 44px ターゲット確保
@@ -1944,6 +1958,94 @@ recordResult(
   itunesModalForRt.includes('hidden sm:table-cell') &&
   scriptsAppForRt.includes("typeof target.onerror !== 'function'"),
   'table-fixed / sm:table-cell / 固定幅排除 / BUG-007 二重発火防止ガードのいずれかが不足',
+  'HIGH'
+);
+
+console.log('\n>>> [9.5] EditAlbumModal トラック追加常時アクセス・幾何保護・競合耐性検証');
+const editModalForRt = fs.readFileSync(path.join(__dirname, '../src/EditAlbumModal.html'), 'utf8');
+const editModalNoCommentsRt = editModalForRt.replace(/<!--[\s\S]*?-->/g, '');
+
+// フッター3ボタンの保護クラス検証
+[
+  { id: 'btn-footer-add-edit-track', extra: ['w-full', 'sm:w-auto', 'justify-center'] },
+  { id: 'btn-cancel-edit-album', extra: [] },
+  { id: 'btn-submit-edit-album', extra: [] }
+].forEach((btn) => {
+  const match = editModalForRt.match(new RegExp(`<button[^>]*id=["']${btn.id}["'][^>]*class=["']([^"']*)["']`, 'i'));
+  const cls = match && match[1] ? match[1] : '';
+  const hasWrapAndShrink = Boolean(match) && cls.includes('whitespace-nowrap') && cls.includes('flex-shrink-0');
+  const hasExtra = btn.extra.every((token) => new RegExp(`(?:^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`).test(cls));
+  recordResult(
+    `EditAlbumModal: #${btn.id} フッター保護クラス (${['whitespace-nowrap', 'flex-shrink-0', ...btn.extra].join(', ')})`,
+    hasWrapAndShrink && hasExtra,
+    `#${btn.id} のクラス保護要件が不足 (class="${cls}")`,
+    'HIGH'
+  );
+});
+
+// フォーム伸縮保護・フッター幾何・インラインハンドラ不在検証
+const hasSafeEditFormAndFooter =
+  /id=["']form-edit-album["'][^>]*class=["'][^"']*\bmin-h-0\b/.test(editModalForRt) &&
+  /class=["'][^"']*\bflex-col\b[^"']*\bsm:flex-row\b[^"']*\bflex-shrink-0\b/.test(editModalForRt) &&
+  /class=["'][^"']*\bw-full\b[^"']*\bsm:w-auto\b[^"']*\bflex-shrink-0\b/.test(editModalForRt) &&
+  !editModalForRt.includes('md:w-auto') &&
+  /class=["'][^"']*\bhidden\b[^"']*\blg:flex\b[^"']*\bmin-w-0\b/.test(editModalForRt) &&
+  !/\bon[a-z]+\s*=/i.test(editModalNoCommentsRt.replace(/onsubmit=["']event\.preventDefault\(\);["']/g, ''));
+
+recordResult(
+  'EditAlbumModal: form min-h-0 / フッター flex-col sm:flex-row / 右ラッパー sm:w-auto / ヒント hidden lg:flex / インラインハンドラ不在',
+  hasSafeEditFormAndFooter,
+  'EditAlbumModal のスクロール保護・レスポンシブ幾何・イベント安全性のいずれかに不備',
+  'HIGH'
+);
+
+// dist/index.html 上の重複 ID 不在検証
+const editModalUniqueIds = ['btn-add-edit-track', 'btn-footer-add-edit-track', 'btn-cancel-edit-album', 'btn-submit-edit-album', 'form-edit-album'];
+const editModalDupFound = editModalUniqueIds.some(
+  (id) => (distIndexForRt.match(new RegExp(`id=["']${id}["']`, 'g')) || []).length !== 1
+);
+recordResult(
+  'dist/index.html: EditAlbumModal 操作ボタン・フォームの単一DOM契約（重複IDなし）',
+  !editModalDupFound,
+  'dist/index.html 内で EditAlbumModal 関連 ID の欠落または重複が検出された',
+  'HIGH'
+);
+
+// ScriptsApp.html 競合・二重操作防止静的検査
+const addTrackIdx = scriptsAppForRt.indexOf('addEditTrackRow() {');
+const removeTrackIdx = scriptsAppForRt.indexOf('removeEditTrackRow(index) {');
+const addTrackBody = (addTrackIdx !== -1 && removeTrackIdx > addTrackIdx)
+  ? scriptsAppForRt.slice(addTrackIdx, removeTrackIdx)
+  : '';
+const isSavingPos = addTrackBody.indexOf('this.store.state.isSaving');
+const syncPos = addTrackBody.indexOf('this.syncEditingTracksFromDom()');
+const hasAddTrackIsSavingGuard = isSavingPos !== -1 && syncPos !== -1 && isSavingPos < syncPos;
+
+const saveAlbumIdx = scriptsAppForRt.indexOf('async handleSaveAlbumEdit() {');
+const toggleSelectIdx = scriptsAppForRt.indexOf('toggleAlbumSelectMode(forceState) {');
+const saveAlbumBody = (saveAlbumIdx !== -1 && toggleSelectIdx > saveAlbumIdx)
+  ? scriptsAppForRt.slice(saveAlbumIdx, toggleSelectIdx)
+  : '';
+const saveFinallyIdx = saveAlbumBody.indexOf('} finally {');
+const saveTryPart = saveFinallyIdx !== -1 ? saveAlbumBody.slice(0, saveFinallyIdx) : '';
+const saveFinallyPart = saveFinallyIdx !== -1 ? saveAlbumBody.slice(saveFinallyIdx) : '';
+
+const hasSaveAddBtnsSync =
+  saveTryPart.includes('btnSubmit.disabled = true') &&
+  saveTryPart.includes('btnMobileSubmit.disabled = true') &&
+  saveTryPart.includes("document.getElementById('btn-add-edit-track')") &&
+  saveTryPart.includes("document.getElementById('btn-footer-add-edit-track')") &&
+  saveTryPart.includes('if (btnAddEditTrack) btnAddEditTrack.disabled = true;') &&
+  saveTryPart.includes('if (btnFooterAddEditTrack) btnFooterAddEditTrack.disabled = true;') &&
+  saveFinallyPart.includes('if (btnSubmit) btnSubmit.disabled = false;') &&
+  saveFinallyPart.includes('if (btnMobileSubmit) btnMobileSubmit.disabled = false;') &&
+  saveFinallyPart.includes('if (btnAddEditTrack) btnAddEditTrack.disabled = false;') &&
+  saveFinallyPart.includes('if (btnFooterAddEditTrack) btnFooterAddEditTrack.disabled = false;');
+
+recordResult(
+  'ScriptsApp: addEditTrackRow() isSaving ガード & handleSaveAlbumEdit() 追加ボタン disabled 同期・finally 復帰',
+  hasAddTrackIsSavingGuard && hasSaveAddBtnsSync,
+  '保存中ガードまたは追加ボタン disabled 同期／finally 復帰のいずれかが不備',
   'HIGH'
 );
 

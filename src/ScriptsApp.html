@@ -288,6 +288,10 @@ class App {
     if (btnAddEditTrack) {  
       btnAddEditTrack.addEventListener('click', () => this.addEditTrackRow());  
     }  
+    const btnFooterAddEditTrack = document.getElementById('btn-footer-add-edit-track');
+    if (btnFooterAddEditTrack) {
+      btnFooterAddEditTrack.addEventListener('click', () => this.addEditTrackRow());
+    }
 
     // アルバム編集 自動連番採番ボタン  
     const btnRenumberEditTracks = document.getElementById('btn-renumber-edit-tracks');  
@@ -2437,6 +2441,7 @@ class App {
   }  
 
   addEditTrackRow() {  
+    if (this.store && this.store.state && this.store.state.isSaving) return;
     this.syncEditingTracksFromDom();  
     const defaultArtist = (document.getElementById('edit-album-artist')?.value || '').trim();  
 
@@ -2567,11 +2572,15 @@ class App {
 
     const btnSubmit = document.getElementById('btn-submit-edit-album');  
     const btnMobileSubmit = document.getElementById('btn-mobile-submit-edit-album');  
+    const btnAddEditTrack = document.getElementById('btn-add-edit-track');
+    const btnFooterAddEditTrack = document.getElementById('btn-footer-add-edit-track');
     const spinners = document.querySelectorAll('.edit-album-submit-spinner');  
     const btnTexts = document.querySelectorAll('.edit-album-submit-btn-text');  
 
     if (btnSubmit) btnSubmit.disabled = true;  
     if (btnMobileSubmit) btnMobileSubmit.disabled = true;  
+    if (btnAddEditTrack) btnAddEditTrack.disabled = true;
+    if (btnFooterAddEditTrack) btnFooterAddEditTrack.disabled = true;
     spinners.forEach(s => s.classList.remove('hidden'));  
     btnTexts.forEach(t => t.textContent = '保存中...');  
 
@@ -2617,6 +2626,8 @@ class App {
       this.store.state.isSaving = false;  
       if (btnSubmit) btnSubmit.disabled = false;  
       if (btnMobileSubmit) btnMobileSubmit.disabled = false;  
+      if (btnAddEditTrack) btnAddEditTrack.disabled = false;
+      if (btnFooterAddEditTrack) btnFooterAddEditTrack.disabled = false;
       spinners.forEach(s => s.classList.add('hidden'));  
       btnTexts.forEach(t => t.textContent = '変更を保存');  
       if (btnMobileSubmit) {  

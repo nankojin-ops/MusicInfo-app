@@ -3352,6 +3352,449 @@ console.log('\n[13] Code.js doPost JSON API ディスパッチャ・認証・11�
     'BUG-007 保険動作: 個別 onerror 未登録画像では window キャプチャリスナーが Step 0→1 フォールバックを実行すること'
   );
 
+  // =============================================================================
+  // [17] アルバム編集モーダル トラック追加常時アクセス改善テスト
+  // =============================================================================
+  console.log('\n[17] アルバム編集モーダル トラック追加常時アクセス改善テスト');
+  {
+    const editModalSrcHtml = fs.readFileSync(path.join(srcDir, 'EditAlbumModal.html'), 'utf8');
+    const distHtmlForEdit = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
+    const editModalNoComments = editModalSrcHtml.replace(/<!--[\s\S]*?-->/g, '');
+
+    // 17.1 静的構造・単一DOM契約検証
+    const requiredEditModalIds = [
+      'form-edit-album',
+      'btn-add-edit-track',
+      'btn-footer-add-edit-track',
+      'btn-cancel-edit-album',
+      'btn-submit-edit-album'
+    ];
+    requiredEditModalIds.forEach((id) => {
+      const srcMatches = editModalSrcHtml.match(new RegExp(`id=["']${id}["']`, 'g')) || [];
+      const distMatches = distHtmlForEdit.match(new RegExp(`id=["']${id}["']`, 'g')) || [];
+      assert(
+        srcMatches.length === 1 && distMatches.length === 1,
+        `EditAlbumModal 単一DOM契約: id="${id}" が src/dist 双方で厳密に1箇所のみ存在すること`
+      );
+    });
+
+    const formMatch = editModalSrcHtml.match(/<form\s+id="form-edit-album"\s+([^>]*)>/i);
+    const formAttrs = formMatch ? formMatch[1] : '';
+    const formClassMatch = formAttrs.match(/class="([^"]*)"/i);
+    const formClass = formClassMatch ? formClassMatch[1] : '';
+    assert(
+      Boolean(formMatch) &&
+      formAttrs.includes('onsubmit="event.preventDefault();"') &&
+      /\bflex-1\b/.test(formClass) &&
+      /\bmin-h-0\b/.test(formClass) &&
+      /\boverflow-y-auto\b/.test(formClass),
+      'EditAlbumModal.html: #form-edit-album に onsubmit="event.preventDefault();" および flex-1 min-h-0 overflow-y-auto が設定されていること'
+    );
+
+    const footerSectionIdx = editModalSrcHtml.indexOf('<!-- モーダルフッター');
+    const footerSection = footerSectionIdx !== -1 ? editModalSrcHtml.slice(footerSectionIdx) : '';
+    const footerWrapMatch = footerSection.match(/<div\s+class="([^"]*\bborder-t\b[^"]*)"/i);
+    const footerWrapClass = footerWrapMatch ? footerWrapMatch[1] : '';
+    const rightBtnWrapMatch = footerSection.match(/<div\s+class="([^"]*)"[^>]*>\s*(?:<!--[^>]*-->\s*)*<button\s+id="btn-cancel-edit-album"/i);
+    const rightBtnWrapClass = rightBtnWrapMatch ? rightBtnWrapMatch[1] : '';
+    const hintWrapMatch = footerSection.match(/<\/button>\s*<div\s+class="([^"]*)"[^>]*>\s*<svg[\s\S]*?<span\s+class="([^"]*)"[^>]*>同一CD番号内でトラック番号が重複していないか確認して保存してください<\/span>/i);
+    const hintWrapClass = hintWrapMatch ? hintWrapMatch[1] : '';
+    const hintSpanClass = hintWrapMatch ? hintWrapMatch[2] : '';
+
+    assert(
+      /\bflex-col\b/.test(footerWrapClass) &&
+      /\bsm:flex-row\b/.test(footerWrapClass) &&
+      /\bflex-shrink-0\b/.test(footerWrapClass) &&
+      /\bw-full\b/.test(rightBtnWrapClass) &&
+      /\bsm:w-auto\b/.test(rightBtnWrapClass) &&
+      /\bflex-shrink-0\b/.test(rightBtnWrapClass) &&
+      !editModalSrcHtml.includes('md:w-auto') &&
+      /\bhidden\b/.test(hintWrapClass) &&
+      /\blg:flex\b/.test(hintWrapClass) &&
+      /\bmin-w-0\b/.test(hintWrapClass) &&
+      !editModalSrcHtml.includes('hidden md:flex') &&
+      /\btruncate\b/.test(hintSpanClass),
+      'EditAlbumModal.html: フッターが flex-col sm:flex-row / flex-shrink-0、右ラッパーが w-full sm:w-auto、ヒントが hidden lg:flex min-w-0 truncate であること'
+    );
+
+    const editWithoutFormOnsubmit = editModalNoComments.replace(/onsubmit="event\.preventDefault\(\);"/g, '');
+    assert(
+      !/\bon[a-z]+\s*=/i.test(editWithoutFormOnsubmit),
+      'EditAlbumModal.html: <form> の onsubmit 以外にインラインイベントハンドラが存在しないこと'
+    );
+
+    const targetFooterAndToolbarBtns = [
+      'btn-footer-add-edit-track',
+      'btn-add-edit-track',
+      'btn-cancel-edit-album',
+      'btn-submit-edit-album'
+    ];
+    targetFooterAndToolbarBtns.forEach((btnId) => {
+      const btnMatch = editModalSrcHtml.match(new RegExp(`<button\\s+id="${btnId}"\\s+type="button"\\s+class="([^"]*)"`, 'i'));
+      const cls = btnMatch ? btnMatch[1] : '';
+      const baseOk = Boolean(btnMatch) &&
+        cls.includes('min-h-[44px]') &&
+        cls.includes('whitespace-nowrap') &&
+        cls.includes('flex-shrink-0');
+      let extraOk = true;
+      if (btnId === 'btn-footer-add-edit-track') {
+        extraOk = /\bw-full\b/.test(cls) &&
+          /\bsm:w-auto\b/.test(cls) &&
+          /\bjustify-center\b/.test(cls) &&
+          cls.includes('disabled:opacity-40') &&
+          cls.includes('disabled:cursor-not-allowed');
+      } else if (btnId === 'btn-add-edit-track') {
+        extraOk = cls.includes('disabled:opacity-40') &&
+          cls.includes('disabled:cursor-not-allowed');
+      }
+      assert(
+        baseOk && extraOk,
+        `EditAlbumModal.html: #${btnId} が id→type="button"→class 順かつ min-h-[44px]・whitespace-nowrap・flex-shrink-0 等を満たすこと`
+      );
+    });
+
+    // 17.2 VM サンドボックス動的動作・isSavingガード・disabled同期・finally復帰テスト
+    const focusCalls = [];
+    const scrollCalls = [];
+
+    const makeEditMockEl = (id, init = {}) => {
+      const cls = new Set(init.classes || []);
+      const attrs = {};
+      const listeners = {};
+      return {
+        id,
+        value: init.value || '',
+        type: init.type || 'text',
+        textContent: '',
+        innerHTML: '',
+        src: '',
+        disabled: false,
+        style: {},
+        classList: {
+          add: (...cs) => cs.forEach(c => cls.add(c)),
+          remove: (...cs) => cs.forEach(c => cls.delete(c)),
+          toggle: (c, f) => {
+            if (f === undefined) {
+              if (cls.has(c)) cls.delete(c);
+              else cls.add(c);
+            } else if (f) {
+              cls.add(c);
+            } else {
+              cls.delete(c);
+            }
+          },
+          contains: (c) => cls.has(c)
+        },
+        setAttribute: (k, v) => { attrs[k] = String(v); },
+        getAttribute: (k) => (Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null),
+        addEventListener: (type, fn) => {
+          if (!listeners[type]) listeners[type] = [];
+          listeners[type].push(fn);
+        },
+        trigger: (type, eventObj = {}) => {
+          (listeners[type] || []).forEach(fn => fn({ target: eventObj.target || null, preventDefault: () => {}, ...eventObj }));
+        },
+        getListenerCount: (type) => (listeners[type] || []).length,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        focus: () => {},
+        scrollIntoView: () => {},
+        ...init
+      };
+    };
+
+    const makeTrackContainerEl = (containerId) => {
+      let rawHtml = '';
+      let parsedRows = [];
+      const parseTrackRows = (html) => {
+        const blocks = String(html || '').split(/(?=<(?:tr|div)[^>]*data-track-index=")/i);
+        const rows = [];
+        blocks.forEach((block) => {
+          const idxMatch = block.match(/data-track-index="(\d+)"/i);
+          if (!idxMatch) return;
+          const trackIndex = Number(idxMatch[1]);
+          const extractVal = (clsName) => {
+            const inputRe = new RegExp(`<input[^>]*value="([^"]*)"[^>]*class="[^"]*\\b${clsName}\\b`, 'i');
+            const m = block.match(inputRe);
+            return m ? m[1] : '';
+          };
+          const cdInput = makeEditMockEl(`${containerId}-cd-${trackIndex}`, { value: extractVal('edit-track-cd') });
+          const noInput = makeEditMockEl(`${containerId}-no-${trackIndex}`, { value: extractVal('edit-track-no') });
+          const nameInput = makeEditMockEl(`${containerId}-name-${trackIndex}`, {
+            value: extractVal('edit-track-name'),
+            focus: () => { focusCalls.push({ containerId, trackIndex }); },
+            scrollIntoView: (opts) => { scrollCalls.push({ containerId, trackIndex, opts }); }
+          });
+          const artistInput = makeEditMockEl(`${containerId}-artist-${trackIndex}`, { value: extractVal('edit-track-artist') });
+          rows.push({
+            trackIndex,
+            getAttribute: (k) => (k === 'data-track-index' ? String(trackIndex) : null),
+            querySelector: (sel) => {
+              if (sel === '.edit-track-cd') return cdInput;
+              if (sel === '.edit-track-no') return noInput;
+              if (sel === '.edit-track-name') return nameInput;
+              if (sel === '.edit-track-artist') return artistInput;
+              return null;
+            }
+          });
+        });
+        return rows;
+      };
+      const el = makeEditMockEl(containerId);
+      Object.defineProperty(el, 'innerHTML', {
+        get: () => rawHtml,
+        set: (val) => {
+          rawHtml = String(val || '');
+          parsedRows = parseTrackRows(rawHtml);
+        }
+      });
+      el.querySelectorAll = (sel) => {
+        if (sel === '[data-track-index]') return parsedRows;
+        return [];
+      };
+      el.querySelector = (sel) => {
+        const m = String(sel || '').match(/^\[data-track-index="(\d+)"\]$/);
+        if (m) {
+          const targetIdx = Number(m[1]);
+          return parsedRows.find(r => r.trackIndex === targetIdx) || null;
+        }
+        return null;
+      };
+      return el;
+    };
+
+    const editElements = {};
+    [
+      'modal-edit-album', 'form-edit-album',
+      'edit-album-name', 'edit-album-artist', 'edit-album-release-date',
+      'edit-album-artwork-url', 'edit-album-art-preview',
+      'edit-tracks-count-badge', 'edit-tracks-empty-warning',
+      'btn-add-edit-track', 'btn-footer-add-edit-track',
+      'btn-renumber-edit-tracks', 'btn-cancel-edit-album',
+      'btn-submit-edit-album', 'btn-mobile-submit-edit-album',
+      'btn-edit-album-upload', 'edit-album-file-input', 'btn-edit-album-drive',
+      'btn-submit-manual-track', 'btn-manual-drive',
+      'global-loading', 'global-loading-text'
+    ].forEach((id) => { editElements[id] = makeEditMockEl(id); });
+    editElements['modal-edit-album'].classList.add('hidden');
+    editElements['edit-tracks-table-body'] = makeTrackContainerEl('edit-tracks-table-body');
+    editElements['edit-tracks-mobile-container'] = makeTrackContainerEl('edit-tracks-mobile-container');
+    const mockSpinnerEl = makeEditMockEl('mock-spinner', { classes: ['hidden'] });
+    const mockSubmitTextEl = makeEditMockEl('mock-submit-text');
+    const mockMobileSubmitSpan = makeEditMockEl('mock-mobile-submit-text');
+    editElements['btn-mobile-submit-edit-album'].querySelector = (sel) => (
+      sel === '.edit-album-submit-btn-text' ? mockMobileSubmitSpan : null
+    );
+
+    const editCtx = vm.createContext({
+      console, Date, Math, JSON, Set, Map, Error, Promise, String, Number, Array, Object,
+      RegExp, encodeURIComponent, setTimeout, clearTimeout,
+      window: { innerWidth: 1280, addEventListener: () => {} },
+      document: {
+        getElementById: (id) => editElements[id] || null,
+        querySelectorAll: (sel) => {
+          if (sel === '.edit-album-submit-spinner') return [mockSpinnerEl];
+          if (sel === '.edit-album-submit-btn-text') return [mockSubmitTextEl];
+          return [];
+        },
+        addEventListener: () => {},
+        createElement: () => makeEditMockEl('dyn')
+      },
+      Utils: null,
+      ApiClient: function() {
+        return {
+          isHttpApiMode: () => false,
+          updateAlbumBatch: async () => ({ updatedRowCount: 0 }),
+          uploadArtwork: async () => ({ publicUrl: '' })
+        };
+      },
+      Store: null
+    });
+
+    const utilsScriptHtml = fs.readFileSync(path.join(srcDir, 'ScriptsUtils.html'), 'utf8');
+    const stateScriptHtml = fs.readFileSync(path.join(srcDir, 'ScriptsState.html'), 'utf8');
+    const appScriptHtml = fs.readFileSync(path.join(srcDir, 'ScriptsApp.html'), 'utf8');
+    vm.runInContext(utilsScriptHtml.match(/<script>([\s\S]*?)<\/script>/)[1], editCtx);
+    vm.runInContext(stateScriptHtml.match(/<script>([\s\S]*?)<\/script>/)[1], editCtx);
+    vm.runInContext(appScriptHtml.match(/<script>([\s\S]*?)<\/script>/)[1], editCtx);
+
+    const editApp = new editCtx.window.App();
+    editApp.bindEvents();
+
+    assert(
+      editElements['btn-add-edit-track'].getListenerCount('click') === 1 &&
+      editElements['btn-footer-add-edit-track'].getListenerCount('click') === 1,
+      'App.bindEvents(): #btn-add-edit-track と #btn-footer-add-edit-track 双方に click リスナーが登録されること'
+    );
+
+    const sampleEditAlbum = {
+      albumArtist: 'Test Edit Artist',
+      albumName: 'Test Edit Album',
+      releaseDate: '2026-11-21',
+      artworkUrl: '',
+      totalTracks: 2,
+      discs: {
+        1: {
+          cdNumber: 1,
+          tracks: [
+            { cdNumber: 1, trackNumber: 1, trackName: 'Track One', trackArtist: 'Test Edit Artist' },
+            { cdNumber: 1, trackNumber: 2, trackName: 'Track Two', trackArtist: 'Test Edit Artist' }
+          ]
+        }
+      }
+    };
+    editApp.openEditAlbumModal(sampleEditAlbum);
+
+    // 2行目の曲名入力値をDOM上で変更し、syncEditingTracksFromDom() による保持を検証
+    const pcRowsBefore = editElements['edit-tracks-table-body'].querySelectorAll('[data-track-index]');
+    pcRowsBefore[1].querySelector('.edit-track-name').value = 'Track Two Edited';
+
+    focusCalls.length = 0;
+    scrollCalls.length = 0;
+    editElements['btn-footer-add-edit-track'].trigger('click');
+
+    const pcRowsAfter = editElements['edit-tracks-table-body'].querySelectorAll('[data-track-index]');
+    assert(
+      editApp.editingTracks.length === 3 &&
+      editApp.editingTracks[1].trackName === 'Track Two Edited' &&
+      editApp.editingTracks[2].cdNumber === 1 &&
+      editApp.editingTracks[2].trackNumber === 3 &&
+      editApp.editingTracks[2].trackName === '' &&
+      editElements['edit-tracks-count-badge'].textContent === '3曲' &&
+      pcRowsAfter.length === 3 &&
+      focusCalls.some(c => c.containerId === 'edit-tracks-table-body' && c.trackIndex === 2) &&
+      scrollCalls.some(c => c.containerId === 'edit-tracks-table-body' && c.trackIndex === 2 && c.opts && c.opts.block === 'nearest'),
+      'PC幅: #btn-footer-add-edit-track クリックで入力保持・CD/No連番追加・バッジ/DOM更新・末尾行 focus/scrollIntoView が動作すること'
+    );
+
+    // モバイル幅でツールバー・フッター両ボタンの一致動作を検証
+    editCtx.window.innerWidth = 375;
+    focusCalls.length = 0;
+    scrollCalls.length = 0;
+    editElements['btn-add-edit-track'].trigger('click');
+    const afterToolbarCount = editApp.editingTracks.length;
+    const afterToolbarLast = editApp.editingTracks[afterToolbarCount - 1];
+    editElements['btn-footer-add-edit-track'].trigger('click');
+    const afterFooterCount = editApp.editingTracks.length;
+    const afterFooterLast = editApp.editingTracks[afterFooterCount - 1];
+    assert(
+      afterToolbarCount === 4 &&
+      afterToolbarLast.cdNumber === 1 &&
+      afterToolbarLast.trackNumber === 4 &&
+      afterFooterCount === 5 &&
+      afterFooterLast.cdNumber === 1 &&
+      afterFooterLast.trackNumber === 5 &&
+      focusCalls.some(c => c.containerId === 'edit-tracks-mobile-container' && c.trackIndex === 4) &&
+      scrollCalls.some(c => c.containerId === 'edit-tracks-mobile-container' && c.trackIndex === 4),
+      'モバイル幅: #btn-add-edit-track と #btn-footer-add-edit-track が同一挙動で連番追加しモバイル行へ focus/scrollIntoView すること'
+    );
+
+    // isSaving === true ガード検証
+    editApp.store.state.isSaving = true;
+    editApp.addEditTrackRow();
+    editElements['btn-footer-add-edit-track'].trigger('click');
+    editElements['btn-add-edit-track'].trigger('click');
+    assert(
+      editApp.editingTracks.length === 5,
+      'isSaving === true 時は addEditTrackRow() および両追加ボタンクリックでもトラック行が増えないこと'
+    );
+    editApp.store.state.isSaving = false;
+
+    // handleSaveAlbumEdit() 実行中の disabled 同期と成功時 finally 復帰検証
+    const mobileRows = editElements['edit-tracks-mobile-container'].querySelectorAll('[data-track-index]');
+    mobileRows[2].querySelector('.edit-track-name').value = 'Track Three';
+    mobileRows[3].querySelector('.edit-track-name').value = 'Track Four';
+    mobileRows[4].querySelector('.edit-track-name').value = 'Track Five';
+
+    let resolveSave = null;
+    editApp.api.updateAlbumBatch = () => new Promise((resolve) => { resolveSave = resolve; });
+    const savePromise = editApp.handleSaveAlbumEdit();
+
+    const disabledDuringSave =
+      editApp.store.state.isSaving === true &&
+      editElements['btn-add-edit-track'].disabled === true &&
+      editElements['btn-footer-add-edit-track'].disabled === true &&
+      editElements['btn-submit-edit-album'].disabled === true &&
+      editElements['btn-mobile-submit-edit-album'].disabled === true;
+
+    editElements['btn-footer-add-edit-track'].trigger('click');
+    const countUnchangedDuringSave = editApp.editingTracks.length === 5;
+
+    resolveSave({ updatedRowCount: 5 });
+    await savePromise;
+
+    assert(
+      disabledDuringSave &&
+      countUnchangedDuringSave &&
+      editApp.store.state.isSaving === false &&
+      editElements['btn-add-edit-track'].disabled === false &&
+      editElements['btn-footer-add-edit-track'].disabled === false &&
+      editElements['btn-submit-edit-album'].disabled === false &&
+      editElements['btn-mobile-submit-edit-album'].disabled === false,
+      'handleSaveAlbumEdit() 実行中は両追加ボタン・両保存ボタンが disabled=true になり、保存成功後 finally で disabled=false かつ isSaving=false へ復帰すること'
+    );
+
+    // handleSaveAlbumEdit() API エラー例外時の finally 復帰検証
+    editApp.openEditAlbumModal(sampleEditAlbum);
+    editApp.api.updateAlbumBatch = async () => {
+      throw new Error('Simulated Save Failure');
+    };
+    await editApp.handleSaveAlbumEdit();
+    assert(
+      editApp.store.state.isSaving === false &&
+      editElements['btn-add-edit-track'].disabled === false &&
+      editElements['btn-footer-add-edit-track'].disabled === false &&
+      editElements['btn-submit-edit-album'].disabled === false &&
+      editElements['btn-mobile-submit-edit-album'].disabled === false &&
+      !editElements['modal-edit-album'].classList.contains('hidden'),
+      'handleSaveAlbumEdit() エラー例外時も finally により全4ボタンが disabled=false かつ isSaving=false へ復帰しモーダルを閉じないこと'
+    );
+
+    // handleImageUpload(..., 'editAlbum') 中も追加ボタンが阻害されないこと
+    let resolveUpload = null;
+    let notifyUploadStarted = null;
+    const uploadStarted = new Promise((resolve) => { notifyUploadStarted = resolve; });
+    editCtx.window.Utils.resizeImage = async () => 'data:image/png;base64,AAAA';
+    editApp.api.uploadArtwork = () => {
+      if (notifyUploadStarted) notifyUploadStarted();
+      return new Promise((resolve) => { resolveUpload = resolve; });
+    };
+    const mockFileEvent = {
+      target: {
+        files: [{ name: 'cover.png', size: 1024, type: 'image/png' }],
+        value: 'C:\\fakepath\\cover.png'
+      }
+    };
+    const uploadPromise = editApp.handleImageUpload(mockFileEvent, 'editAlbum');
+    await Promise.race([uploadStarted, uploadPromise]);
+
+    const duringUploadOk =
+      typeof resolveUpload === 'function' &&
+      editElements['btn-submit-edit-album'].disabled === true &&
+      editElements['btn-mobile-submit-edit-album'].disabled === true &&
+      editElements['btn-edit-album-drive'].disabled === true &&
+      editElements['btn-add-edit-track'].disabled === false &&
+      editElements['btn-footer-add-edit-track'].disabled === false;
+
+    const tracksBeforeUploadAdd = editApp.editingTracks.length;
+    editElements['btn-footer-add-edit-track'].trigger('click');
+    const canAddDuringUpload = editApp.editingTracks.length === tracksBeforeUploadAdd + 1;
+
+    if (resolveUpload) {
+      resolveUpload({ publicUrl: 'https://example.com/uploaded-cover.png' });
+    }
+    await uploadPromise;
+
+    assert(
+      duringUploadOk &&
+      canAddDuringUpload &&
+      editElements['btn-submit-edit-album'].disabled === false &&
+      editElements['btn-add-edit-track'].disabled === false &&
+      editElements['btn-footer-add-edit-track'].disabled === false,
+      'handleImageUpload(..., "editAlbum") 実行中も追加ボタン2種は disabled=false を維持し行追加を阻害しないこと'
+    );
+  }
+
   console.log('\n==================================================');
   console.log(`テスト結果サマリー: 成功 = ${passCount}, 失敗 = ${failCount}`);
   console.log('==================================================');
